@@ -78,6 +78,12 @@ function withCompletedTaskIds(record) {
   return { ...record, completedTaskIds: ids };
 }
 
+/** History is only needed when this open claim still has no task-id array. */
+export function openClaimNeedsTaskHydrate(claim) {
+  if (!claim || typeof claim !== 'object') return false;
+  return !Array.isArray(coerceCompletedTaskIds(claim.completedTaskIds));
+}
+
 /** Copy stringified claim task ids onto a real array before the page decides to hydrate. */
 export function normalizeKitClaims(kits) {
   if (!Array.isArray(kits)) return kits;

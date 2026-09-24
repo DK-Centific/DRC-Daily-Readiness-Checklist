@@ -30,6 +30,16 @@ test('calendar marks wait until the kit list has settled', () => {
   assert.equal(ranges.includes('monthMarkTargets'), true);
 });
 
+test('history fills task ticks only when getKits left them off the open claim', () => {
+  const source = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8');
+  const refresh = functionBody(source, 'refreshKits');
+  assert.equal(refresh.includes('openClaimNeedsTaskHydrate'), true);
+  assert.equal(refresh.indexOf('openClaimNeedsTaskHydrate') < refresh.indexOf('hydrateTaskIds'), true);
+  const hydrate = functionBody(source, 'hydrateTaskIds');
+  assert.equal(hydrate.includes("action: 'getHistory'") || hydrate.includes("apiCall('getHistory'"), true);
+  assert.equal(hydrate.includes('openClaimNeedsTaskHydrate'), true);
+});
+
 test('task saves stay on the existing debounce', () => {
   const source = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8');
   assert.match(source, /createDebouncedFlush\(TASK_SAVE_WAIT_MS/);

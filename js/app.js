@@ -10,7 +10,7 @@ import {
   validateAccess,
   validateKit,
 } from './editor-state.js';
-import { coerceCompletedTaskIds, isAdminRole, isTaskVisible, normalizeHistoryRows, normalizeKitClaims, roleLabel } from './flow-shape.js';
+import { coerceCompletedTaskIds, isAdminRole, isTaskVisible, normalizeHistoryRows, normalizeKitClaims, openClaimNeedsTaskHydrate, roleLabel } from './flow-shape.js';
 import {
   activityForDay,
   activityFromRows,
@@ -1408,7 +1408,7 @@ async function refreshKits(date, { preferMine = false } = {}) {
         state.error = `${taken.name} was just claimed by ${taken.claim.userName}. Pick another kit.`;
       }
     }
-    const missing = kits.some((kit) => kit.claim && kit.claim.userEmail === actor && !Array.isArray(kit.claim.completedTaskIds));
+    const missing = kits.some((kit) => kit.claim?.userEmail === actor && openClaimNeedsTaskHydrate(kit.claim));
     if (missing) hydrateTaskIds(date, serial);
   } catch (error) {
     if (isAbort(error) || serial !== kitsSerial || state.date !== date) return;
@@ -1432,7 +1432,7 @@ async function hydrateTaskIds(date, serial) {
     if (serial !== kitsSerial || state.date !== date || state.kitHold > 0) return;
     for (const kit of state.kits) {
       const claim = kit.claim;
-      if (!claim || Array.isArray(claim.completedTaskIds)) continue;
+      if (!openClaimNeedsTaskHydrate(claim)) continue;
       const row = rows.find((item) => item.id === claim.claimId);
       const ids = coerceCompletedTaskIds(row?.completedTaskIds);
       claim.completedTaskIds = Array.isArray(ids) ? ids : [];

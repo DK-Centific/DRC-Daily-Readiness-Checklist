@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { coerceCompletedTaskIds, isAdminRole, isTaskVisible, normalizeHistoryRows, normalizeKitClaims, roleLabel } from '../js/flow-shape.js';
+import { coerceCompletedTaskIds, isAdminRole, isTaskVisible, normalizeHistoryRows, normalizeKitClaims, openClaimNeedsTaskHydrate, roleLabel } from '../js/flow-shape.js';
 import { activityFromRows } from '../js/calendar-view.js';
 import { historyEvents } from '../js/history-events.js';
 
@@ -85,6 +85,26 @@ test('stringified completedTaskIds become a real array', () => {
   assert.equal(kits[3].claim, null);
   const rows = normalizeHistoryRows([{ claimId: 10, date: '2026-09-24', completedTaskIds: '[1, 3]' }]);
   assert.deepEqual(rows[0].completedTaskIds, [1, 3]);
+});
+
+test('a live getKits array is kept and does not need history', () => {
+  const kits = normalizeKitClaims([{
+    id: 1,
+    name: 'Kit 01',
+    claim: {
+      claimId: 28,
+      userEmail: 'jane.doe@centific.com',
+      userName: 'Jane Doe',
+      checkInAt: '2026-09-24T15:06:00.000Z',
+      status: 'Claimed',
+      completedTaskIds: [1, 2],
+    },
+  }]);
+  assert.deepEqual(kits[0].claim.completedTaskIds, [1, 2]);
+  assert.equal(openClaimNeedsTaskHydrate(kits[0].claim), false);
+  assert.equal(openClaimNeedsTaskHydrate({ claimId: 28, status: 'Claimed' }), true);
+  assert.equal(openClaimNeedsTaskHydrate({ claimId: 28, completedTaskIds: '[1, 2]' }), false);
+  assert.equal(openClaimNeedsTaskHydrate(null), false);
 });
 
 test('tasks stay visible unless Active is explicitly false', () => {
