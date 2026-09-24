@@ -1,0 +1,8 @@
+{
+  "name": "drc-daily-readiness-checklist",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.js"
+  }
+}

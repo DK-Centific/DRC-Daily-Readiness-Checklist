@@ -1,0 +1,25 @@
+services:
+  - type: web
+    runtime: static
+    name: drc-daily-readiness
+    buildCommand: bash scripts/build.sh
+    staticPublishPath: dist
+    envVars:
+      - key: DRC_FLOW_URL
+        sync: false
+    headers:
+      - path: /*
+        name: X-Frame-Options
+        value: SAMEORIGIN
+      - path: /*
+        name: Referrer-Policy
+        value: no-referrer
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /config.local.js
+        name: Cache-Control
+        value: no-cache
+      - path: /index.html
+        name: Cache-Control
+        value: no-cache
