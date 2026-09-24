@@ -3,6 +3,7 @@
 Site: https://digitaltechedge.sharepoint.com/sites/DataCollectionUSHUB
 Frontend: static web app (HTML/CSS/JS, no server) — hostable on GitHub Pages later.
 Backend: ONE Power Automate HTTP-trigger "router" flow over SharePoint lists (same pattern as Twilight).
+Backend notes (Function reads, Blob cache, Power Automate build): [BACKEND.md](BACKEND.md).
 All times stored in UTC ISO-8601; UI displays America/Los_Angeles ("PT").
 "Day" for claims = the date selected in the calendar, as YYYY-MM-DD (Pacific date).
 

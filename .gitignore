@@ -3,3 +3,7 @@ config.local.json
 dist/
 node_modules/
 .DS_Store
+.drc_*
+*.sas
+.env
+.env.*
