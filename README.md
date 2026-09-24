@@ -4,6 +4,8 @@ A checklist for claiming a kit, completing that day’s tasks, and checking the 
 
 The page is a static site. It can run on your computer now, and it is ready to publish on Render. It does not have its own server. Data will live in SharePoint lists, reached through one Power Automate flow. Until that flow address is set, the page runs in **practice mode** with sample data stored in the browser.
 
+The page uses the font already on the computer or phone. It does not load a font from Google.
+
 ## Try it on your computer
 
 1. Open a terminal in this folder.
@@ -58,16 +60,18 @@ Everyone else sees **Today · Wed, Sep 23**. **Change date** opens the month. On
 | --- | --- | --- |
 | When | Default | After the Power Automate flow exists |
 | Where data lives | This browser only | SharePoint lists |
-| How to turn it on | `config.js` already says `backend: 'mock'` | Copy `config.local.example.js` to `config.local.js`, set `backend: 'pa'` and the flow URL |
+| How to turn it on | `config.js` already says `backend: 'mock'` | Copy `config.local.example.json` to `config.local.json`, set `"backend"` to `"pa"` and paste the flow URL |
 
-You can also force a mode in the address bar:
+On your computer, you can still switch mode in the address bar:
 
 - [http://localhost:8790/?backend=mock](http://localhost:8790/?backend=mock)
 - [http://localhost:8790/?backend=pa](http://localhost:8790/?backend=pa)
 
 To feel a slow connection, open [http://localhost:8790/?backend=mock&latency=3000](http://localhost:8790/?backend=mock&latency=3000). Tabs still switch right away and show **Refreshing…** while the sample data catches up. Add `&debug=1` and open the browser console to see each action and how many milliseconds it took.
 
-`config.local.js` is ignored by git. Do not commit a real flow URL or signature.
+On the published site, after the build has connected to the flow, `?backend=mock` does nothing. The page stays on the shared checklist. To look at sample data in that browser anyway, the address needs both flags: `debug=1` and `backendOverride=1`. Example: `https://drc-daily-readiness.onrender.com/?debug=1&backendOverride=1&backend=mock`. That switch is for troubleshooting. It does not change SharePoint.
+
+`config.local.json` is ignored by git. Do not commit a real flow URL or signature. The page reads that file as data. It does not run it as a program. An older `config.local.js` is still read the same way, and only when it is a plain settings assignment.
 
 When the page is connected to the flow (`backend: 'pa'`), the practice sign-in buttons are hidden. People type their Centific ID and click **Sign in**.
 
@@ -83,9 +87,53 @@ The repo includes `render.yaml`. Render publishes a static site named **drc-dail
 
 The build command is `bash scripts/build.sh`. The published folder is `dist`.
 
-If **DRC_FLOW_URL** is set, the build writes `dist/config.local.js` with that address and turns on the real flow. That file is not committed. `index.html` and `config.local.js` are served with `Cache-Control: no-cache`, so a new flow address shows up on the next deploy.
+If **DRC_FLOW_URL** is set, the build writes `dist/config.local.json` with that address and turns on the real flow. That file is not committed. `render.yaml` tells Render to send `Cache-Control: private, no-store` for `/`, `/index.html`, `/config.local.json`, and `/config.local.js`, so a new flow address is not kept at the CDN. The same file lists `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, and a content security policy. A copy of those rules is also in `_headers` (the file Cloudflare Pages understands). Render’s own docs apply headers from `render.yaml` or from **Settings → Headers**, not from `_headers`.
 
-To change the address later: open the service, click **Environment**, edit **DRC_FLOW_URL**, and deploy again.
+The live site does not pick up a header edit in git by itself. After this file is on the main branch and the deploy is **Live**:
+
+1. Open [dashboard.render.com](https://dashboard.render.com) and sign in.
+2. Click the service **drc-daily-readiness**.
+3. If this site belongs to a Blueprint, open **Blueprints**, open the blueprint for this repo, and click **Manual Sync**. That copies the headers from `render.yaml`.
+4. If there is no Blueprint sync, click **Settings** in the left sidebar, scroll to **Headers**, and click **Add Header** once for each row below. Then click **Save**.
+
+| Path | Header | Value |
+| --- | --- | --- |
+| `/*` | X-Frame-Options | `SAMEORIGIN` |
+| `/*` | Referrer-Policy | `no-referrer` |
+| `/*` | X-Content-Type-Options | `nosniff` |
+| `/*` | Content-Security-Policy | `default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; form-action 'self'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self' https://*.environment.api.powerplatform.com` |
+| `/` | Cache-Control | `private, no-store` |
+| `/` | CDN-Cache-Control | `no-store` |
+| `/index.html` | Cache-Control | `private, no-store` |
+| `/index.html` | CDN-Cache-Control | `no-store` |
+| `/config.local.json` | Cache-Control | `private, no-store` |
+| `/config.local.json` | CDN-Cache-Control | `no-store` |
+| `/config.local.js` | Cache-Control | `private, no-store` |
+| `/config.local.js` | CDN-Cache-Control | `no-store` |
+
+`CDN-Cache-Control: no-store` is the line Cloudflare uses so it does not keep a copy. The connected Render tools cannot set these headers for you. Saving them in the dashboard is the step that changes the live site.
+
+When the deploy is live, run this and read the header lines:
+
+```bash
+curl -sSI https://drc-daily-readiness.onrender.com/ | tr -d '\r'
+curl -sSI https://drc-daily-readiness.onrender.com/index.html | tr -d '\r'
+curl -sSI https://drc-daily-readiness.onrender.com/config.local.json | tr -d '\r'
+```
+
+You want these on `/`, `/index.html`, and `/config.local.json`:
+
+- `cache-control: private, no-store`
+- `x-frame-options: SAMEORIGIN`
+- `referrer-policy: no-referrer`
+- `x-content-type-options: nosniff`
+- `content-security-policy:` including `default-src 'self'`
+
+`cf-cache-status` for `/config.local.json` should no longer stay `HIT` with `s-maxage=300`. Until the dashboard save, the CDN still sends `cache-control: public, max-age=0, s-maxage=300` and omits the frame and referrer headers. The page itself also sends the referrer policy and the content security policy in the HTML, so those two apply on the next deploy even before the dashboard step. The HTML policy leaves out `frame-ancestors` because browsers ignore that piece in a meta tag and show an error. The HTTP header still includes `frame-ancestors 'self'` and `X-Frame-Options`. The frame header and the cache header change only after the dashboard step.
+
+To change the flow address later: open the service, click **Environment**, edit **DRC_FLOW_URL**, and deploy again.
+
+The browser still receives the flow address in this version. The next change, a same-origin service that keeps that address on the server, is described in [docs/SECURITY-PROXY-PLAN.md](docs/SECURITY-PROXY-PLAN.md). This version does not add that service.
 
 The page sends `POST` JSON `{ "action", "actor", ... }` to `FLOW_URL`. The contract is in [docs/DRC_SPEC_AND_API_CONTRACT.md](docs/DRC_SPEC_AND_API_CONTRACT.md). Field names the page expects are in [docs/CLIENT_NOTES.md](docs/CLIENT_NOTES.md).
 
@@ -110,7 +158,7 @@ Node is only needed to run the checks, not to open the page.
 npm test
 ```
 
-That runs the checks in `tests/`. They cover: one open claim per kit per date, different dates, check-out freeing the kit, who claimed and who unclaimed, any signed-in person reading the kit log, non-admins blocked with `FORBIDDEN`, a rejected sign-in, Pacific time labels, Admin/User role text, and hiding tasks whose Active flag is false.
+That runs the checks in `tests/`. They cover: one open claim per kit per date, different dates, check-out freeing the kit, who claimed and who unclaimed, any signed-in person reading the kit log, non-admins blocked with `FORBIDDEN`, a rejected sign-in, Pacific time labels, Admin/User role text, hiding tasks whose Active flag is false, reading `config.local.json` without running it, keeping a connected build on the real checklist when the address says `?backend=mock`, waiting for sign-in before Admin View, and toast labels limited to ok, error, and slow.
 
 ## Assumptions
 
@@ -126,7 +174,7 @@ That runs the checks in `tests/`. They cover: one open claim per kit per date, d
 - The last active admin cannot be removed.
 - Month arrows move the calendar only. The selected day changes when you click a day or Today. Future days stay closed. A past day is view-only.
 - Kit management is in Settings (name, active, sort order). If no kits exist yet, a regular person sees “No kits set up yet, ask a DRC admin.” An admin gets a button that opens Settings to add the first kit.
-- The flow address belongs only in `config.local.js`. Nothing in git contains a real flow URL.
+- The flow address belongs only in `config.local.json` (or the Render variable `DRC_FLOW_URL`). Nothing in git contains a real flow URL. The follow-up that stops sending that address to the browser is [docs/SECURITY-PROXY-PLAN.md](docs/SECURITY-PROXY-PLAN.md).
 - A non-admin who opens Settings actions gets the code `FORBIDDEN`. Unknown people get `NO_ACCESS`. A kit already claimed that day gets `KIT_CLAIMED`.
 - Tasks with Active explicitly false are hidden. The page ignores old log columns, including `CompletedDate`.
 - Practice buttons are hidden in connected mode.

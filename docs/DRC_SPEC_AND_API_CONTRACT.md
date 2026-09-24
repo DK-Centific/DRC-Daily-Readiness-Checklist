@@ -64,4 +64,4 @@ Actions:
 - listKits / upsertKit {id?, name, active, sortOrder} (admin, optional)
 
 ## Security note
-This is an allowlist sign-in (email checked against DRC_Access), not Microsoft SSO/password auth. Flow URL (sig) is a secret-ish token: keep it in a non-committed config (config.local.js) or inject at deploy. Upgrade path: MSAL/Entra ID sign-in later.
+This is an allowlist sign-in (email checked against DRC_Access), not Microsoft SSO/password auth. Flow URL (sig) is a secret-ish token: keep it in a non-committed config.local.json or inject at deploy. The browser still receives that address in this version. The follow-up that holds it on the server is docs/SECURITY-PROXY-PLAN.md. Upgrade path: that same-origin proxy, then MSAL/Entra ID sign-in.

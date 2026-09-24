@@ -1,4 +1,4 @@
-/** Light / Dark / System. The inline script in index.html uses the same key. */
+/** Light / Dark / System. js/theme-boot.js uses the same key before the page paints. */
 
 export const THEME_KEY = 'drc_theme';
 const LEGACY_THEME_KEY = 'drc.theme';

@@ -27,6 +27,9 @@ import {
 import { groupTasks, taskHint } from './task-groups.js';
 import { historyEvents } from './history-events.js';
 import { applyTheme, saveThemeChoice, watchSystemTheme } from './theme.js';
+import { mergeRuntimeConfig, parseLegacyConfigJs, parseLocalConfig } from './config-load.js';
+import { acceptedLoginUser, planSessionRestore } from './session-restore.js';
+import { toastKindClass } from './toast-kind.js';
 import {
   TASK_SAVE_WAIT_MS,
   TASKS_CACHE_KEY,
@@ -184,7 +187,7 @@ function noteBusy(starting) {
 }
 
 function showToast(kind, text) {
-  state.toast = { kind, text };
+  state.toast = { kind: toastKindClass(kind), text };
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => {
     if (state.toast?.text === text) {
@@ -282,29 +285,32 @@ function myClaim(kit = selectedKit()) {
 }
 
 async function loadConfig() {
-  const config = {
-    backend: 'mock',
-    FLOW_URL: '',
-    ...(window.DRC_CONFIG || {}),
+  const built = {
+    backend: window.DRC_CONFIG?.backend,
+    FLOW_URL: window.DRC_CONFIG?.FLOW_URL,
   };
+  let fileConfig = null;
+  let loadError = '';
   try {
-    const response = await fetch('config.local.js', { cache: 'no-store' });
-    if (response.ok) {
-      const text = await response.text();
-      new Function(text)();
-      if (window.DRC_CONFIG) Object.assign(config, window.DRC_CONFIG);
-    }
+    const response = await fetch('config.local.json', { cache: 'no-store' });
+    if (response.ok) fileConfig = parseLocalConfig(await response.text());
   } catch {
-    config._loadError = 'Could not read config.local.js.';
+    loadError = 'Could not read config.local.json.';
   }
-  const params = new URLSearchParams(window.location.search);
-  const override = params.get('backend');
-  if (override === 'mock' || override === 'pa') config.backend = override;
-  else config.backend = config.backend === 'pa' ? 'pa' : 'mock';
-  config.FLOW_URL = String(config.FLOW_URL || '').trim();
-  const latency = Number(params.get('latency'));
-  config.latencyMs = Number.isFinite(latency) && latency > 0 ? latency : 0;
-  config.debug = params.get('debug') === '1';
+  if (!fileConfig && !loadError) {
+    try {
+      const response = await fetch('config.local.js', { cache: 'no-store' });
+      if (response.ok) fileConfig = parseLegacyConfigJs(await response.text());
+    } catch {
+      loadError = 'Could not read config.local.js.';
+    }
+  }
+  const config = mergeRuntimeConfig({
+    built,
+    fileConfig,
+    searchParams: new URLSearchParams(window.location.search),
+  });
+  if (loadError) config._loadError = loadError;
   return config;
 }
 
@@ -391,7 +397,8 @@ function syncToast() {
     existing?.remove();
     return;
   }
-  const html = `<div class="toast ${esc(state.toast.kind)}" id="toast" role="status">${esc(state.toast.text)}</div>`;
+  const kind = toastKindClass(state.toast.kind);
+  const html = `<div class="toast${kind ? ` ${kind}` : ''}" id="toast" role="status">${esc(state.toast.text)}</div>`;
   if (!existing) app.insertAdjacentHTML('beforeend', html);
   else existing.outerHTML = html;
 }
@@ -493,8 +500,16 @@ function accountMenu() {
     </div>`;
 }
 
+function paintProgressBar() {
+  const bar = document.getElementById('task-bar');
+  if (!bar) return;
+  const width = Number(bar.dataset.width);
+  bar.style.width = `${Number.isFinite(width) ? width : 0}%`;
+}
+
 function finishPaint() {
   paintThemeToggle();
+  paintProgressBar();
   scheduleMonthMarks();
 }
 
@@ -878,7 +893,7 @@ function renderSession(kit) {
       <div class="session-info">
         <p class="session-title">${esc(kit.name)} <span class="badge badge-yours">Yours</span></p>
         <p class="session-meta">Checked in ${esc(formatPtTime(claim.checkInAt))} · <span class="tabular" id="task-progress">${completed} of ${total}</span> done</p>
-        <div class="progress-track" aria-hidden="true"><div class="progress-fill" id="task-bar" style="width:${width}%"></div></div>
+        <div class="progress-track" aria-hidden="true"><div class="progress-fill" id="task-bar" data-width="${width}"></div></div>
       </div>
       <div class="session-actions">
         <button type="button" class="btn ${ready ? 'btn-primary' : 'btn-secondary'}" id="check-button" data-action="check-out" ${claim.pending || state.pendingCheckOut ? 'disabled' : ''}>Check out</button>
@@ -980,7 +995,7 @@ function renderHistory() {
     .join('');
   return `
     <h2 class="section" id="history-heading">Kit log</h2>
-    <p class="meta" style="margin-bottom:16px;">Newest first. Each claim and each release is its own line. Times are Pacific time (PT).</p>
+    <p class="meta spaced">Newest first. Each claim and each release is its own line. Times are Pacific time (PT).</p>
     ${banner('err', state.historyError, state.historyCode)}
     ${state.historyHint ? `<p class="hint">${esc(state.historyHint)}</p>` : ''}
     <form id="history-form" class="filters" method="post" action="#">
@@ -1127,7 +1142,7 @@ function renderAccessEditor() {
   return `
     <section class="card" aria-labelledby="access-heading">
       <h2 class="section" id="access-heading">Who can sign in</h2>
-      <p class="meta" style="margin-bottom:16px;">Name, email, role (Admin or Staff), and whether they can sign in.</p>
+      <p class="meta spaced">Name, email, role (Admin or Staff), and whether they can sign in.</p>
       ${form}
       ${state.access.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Email</th><th>Name</th><th>Role</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>` : '<p>No one is on the access list yet.</p>'}
     </section>`;
@@ -1182,7 +1197,7 @@ function renderKitEditor() {
   return `
     <section class="card" aria-labelledby="kits-heading">
       <h2 class="section" id="kits-heading">Kits</h2>
-      <p class="meta" style="margin-bottom:16px;">Enable, rename, and see who holds each kit today. Sort order must be a whole number.</p>
+      <p class="meta spaced">Enable, rename, and see who holds each kit today. Sort order must be a whole number.</p>
       ${form}
       ${state.allKits.length ? rows : '<p id="kits-empty">No kits yet. Add a kit here so people can check in.</p>'}
     </section>`;
@@ -1214,7 +1229,7 @@ function renderModal() {
         <h2 id="modal-title">Check out of ${esc(state.modal.kitName)}?</h2>
         <p class="dialog-summary"><span class="tabular">${completed} of ${total}</span> tasks done</p>
         <p class="dialog-warn" id="modal-body">Please ensure you have completed the task.</p>
-        ${remaining.length ? `<p class="meta" style="margin-bottom:8px;">Still open:</p><ul class="remaining">${remaining.map((task) => `<li>${esc(task.title)}</li>`).join('')}</ul>` : ''}
+        ${remaining.length ? `<p class="meta spaced-sm">Still open:</p><ul class="remaining">${remaining.map((task) => `<li>${esc(task.title)}</li>`).join('')}</ul>` : ''}
         <div class="dialog-actions">
           <button type="button" class="btn btn-secondary" id="modal-cancel" data-action="modal-cancel">Keep working</button>
           <button type="button" class="btn btn-primary" id="modal-confirm" data-action="modal-confirm">${confirmLabel}</button>
@@ -1235,7 +1250,12 @@ async function signIn(email) {
   clearPageError();
   render();
   try {
-    const user = await apiCall('login', { email: state.loginEmail });
+    const user = acceptedLoginUser(await apiCall('login', { email: state.loginEmail }));
+    if (!user) {
+      const error = new Error('Could not sign in.');
+      error.code = 'BAD_RESPONSE';
+      throw error;
+    }
     enterApp(user);
   } catch (error) {
     state.signingIn = false;
@@ -1246,7 +1266,9 @@ async function signIn(email) {
 }
 
 function enterApp(user) {
-  state.user = user;
+  const accepted = acceptedLoginUser(user);
+  if (!accepted) return;
+  state.user = accepted;
   state.signingIn = false;
   clearPageError();
   state.message = '';
@@ -1263,12 +1285,12 @@ function enterApp(user) {
   state.kitsByDate = new Map();
   state.kits = [];
   state.kitsLoaded = false;
-  state.filters = defaultFilters(user);
-  rememberPerson(user.email, user.name);
+  state.filters = defaultFilters(accepted);
+  rememberPerson(accepted.email, accepted.name);
   confirmedTaskIds = null;
   taskFlush.cancel();
   try {
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify(user));
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(accepted));
   } catch {
     /* session storage can be blocked; the page still works until refresh */
   }
@@ -2368,29 +2390,41 @@ async function init() {
     debug: state.config.debug,
   });
   document.title = 'Sign in · Daily Readiness Checklist';
-  let saved = null;
-  try {
-    saved = JSON.parse(sessionStorage.getItem(SESSION_KEY) || 'null');
-  } catch {
-    saved = null;
-  }
-  state.ready = true;
-  if (saved?.email && saved?.name) {
-    enterApp(saved);
-    apiCall('login', { email: saved.email }).then((user) => {
-      if (state.user?.email !== user.email) return;
-      state.user = user;
-      try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(user)); } catch { /* ignore */ }
-    }).catch((error) => {
-      if (state.user?.email !== saved.email) return;
+  const plan = planSessionRestore(readSavedSession());
+  if (plan.action === 'revalidate') {
+    state.ready = false;
+    state.user = null;
+    render();
+    try {
+      const user = acceptedLoginUser(await apiCall('login', { email: plan.email }));
+      if (!user) {
+        const error = new Error('Could not sign in.');
+        error.code = 'BAD_RESPONSE';
+        throw error;
+      }
+      state.ready = true;
+      enterApp(user);
+    } catch (error) {
+      state.ready = true;
       signOut();
-      state.error = error.message;
+      state.notice = '';
+      state.error = error.message || 'Could not sign in.';
       state.errorCode = error.code || '';
+      state.loginEmail = plan.email;
       render();
-    });
+    }
     return;
   }
+  state.ready = true;
   render();
+}
+
+function readSavedSession() {
+  try {
+    return JSON.parse(sessionStorage.getItem(SESSION_KEY) || 'null');
+  } catch {
+    return null;
+  }
 }
 
 init();

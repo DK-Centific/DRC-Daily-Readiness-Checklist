@@ -1,3 +1,7 @@
+# Security and cache headers. An existing Render service keeps its old headers
+# until you sync the Blueprint or add these rules under Settings → Headers.
+# Steps and the curl check are in the README.
+# dist/_headers is the same policy in the Cloudflare Pages file format.
 services:
   - type: web
     runtime: static
@@ -17,9 +21,30 @@ services:
       - path: /*
         name: X-Content-Type-Options
         value: nosniff
-      - path: /config.local.js
+      - path: /*
+        name: Content-Security-Policy
+        value: "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; form-action 'self'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self' https://*.environment.api.powerplatform.com"
+      - path: /
         name: Cache-Control
-        value: no-cache
+        value: private, no-store
+      - path: /
+        name: CDN-Cache-Control
+        value: no-store
       - path: /index.html
         name: Cache-Control
-        value: no-cache
+        value: private, no-store
+      - path: /index.html
+        name: CDN-Cache-Control
+        value: no-store
+      - path: /config.local.json
+        name: Cache-Control
+        value: private, no-store
+      - path: /config.local.json
+        name: CDN-Cache-Control
+        value: no-store
+      - path: /config.local.js
+        name: Cache-Control
+        value: private, no-store
+      - path: /config.local.js
+        name: CDN-Cache-Control
+        value: no-store
