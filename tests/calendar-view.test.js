@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {
   activityForDay,
   activityFromRows,
+  checklistReadyForMonthMarks,
+  monthMarkTargets,
   monthRange,
   outcomeForKit,
   renderActivityCalendar,
@@ -21,6 +23,19 @@ const day = (ymd, dayNumber, extra = {}) => ({
   tabStop: extra.tabStop || false,
   outside: extra.outside || false,
   future: extra.future || false,
+});
+
+test('month marks wait until kits have settled', () => {
+  assert.equal(checklistReadyForMonthMarks({ kitsLoaded: false, checklistLoading: false }), false);
+  assert.equal(checklistReadyForMonthMarks({ kitsLoaded: true, checklistLoading: true }), false);
+  assert.equal(checklistReadyForMonthMarks({ kitsLoaded: true, checklistLoading: false }), true);
+});
+
+test('staff skip the month until a past day; admin still loads Layout A', () => {
+  assert.deepEqual(monthMarkTargets({ isAdmin: false, pastDate: false }), []);
+  assert.deepEqual(monthMarkTargets({ isAdmin: false, pastDate: true }), ['selected-month']);
+  assert.deepEqual(monthMarkTargets({ isAdmin: true, pastDate: false }), ['view-month']);
+  assert.deepEqual(monthMarkTargets({ isAdmin: true, pastDate: true }), ['view-month', 'selected-month']);
 });
 
 test('a month range is the first and last day of that month', () => {

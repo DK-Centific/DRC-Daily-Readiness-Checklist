@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { isAdminRole, isTaskVisible, normalizeHistoryRows, roleLabel } from '../js/flow-shape.js';
+import { coerceCompletedTaskIds, isAdminRole, isTaskVisible, normalizeHistoryRows, normalizeKitClaims, roleLabel } from '../js/flow-shape.js';
 import { activityFromRows } from '../js/calendar-view.js';
 import { historyEvents } from '../js/history-events.js';
 
@@ -63,6 +63,28 @@ test('live history rows use claimDate and id', () => {
   assert.equal(pascal[0].kitName, 'Team 1');
   assert.equal(normalizeHistoryRows(null), null);
   assert.deepEqual(normalizeHistoryRows([{ id: 4, claimDate: '2026-09-24' }]), [{ id: 4, claimDate: '2026-09-24' }]);
+});
+
+test('stringified completedTaskIds become a real array', () => {
+  assert.deepEqual(coerceCompletedTaskIds('[1, 3]'), [1, 3]);
+  assert.deepEqual(coerceCompletedTaskIds('["1","3"]'), [1, 3]);
+  assert.deepEqual(coerceCompletedTaskIds('"[1, 3]"'), [1, 3]);
+  assert.deepEqual(coerceCompletedTaskIds([1, 3]), [1, 3]);
+  assert.equal(coerceCompletedTaskIds('not-json'), 'not-json');
+  assert.equal(coerceCompletedTaskIds(null), null);
+  const kits = normalizeKitClaims([
+    { id: 1, name: 'Kit 01', claim: { claimId: 10, userEmail: 'jane.doe@centific.com', completedTaskIds: '[1, 3]' } },
+    { id: 2, name: 'Kit 02', claim: { claimId: 11, userEmail: 'jane.doe@centific.com', CompletedTaskIDs: '["2"]' } },
+    { id: 3, name: 'Kit 03', claim: { claimId: 12, userEmail: 'jane.doe@centific.com' } },
+    { id: 4, name: 'Kit 04', claim: null },
+  ]);
+  assert.deepEqual(kits[0].claim.completedTaskIds, [1, 3]);
+  assert.equal(Array.isArray(kits[0].claim.completedTaskIds), true);
+  assert.deepEqual(kits[1].claim.completedTaskIds, [2]);
+  assert.equal(Array.isArray(kits[2].claim.completedTaskIds), false);
+  assert.equal(kits[3].claim, null);
+  const rows = normalizeHistoryRows([{ claimId: 10, date: '2026-09-24', completedTaskIds: '[1, 3]' }]);
+  assert.deepEqual(rows[0].completedTaskIds, [1, 3]);
 });
 
 test('tasks stay visible unless Active is explicitly false', () => {

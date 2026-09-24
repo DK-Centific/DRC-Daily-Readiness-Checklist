@@ -34,6 +34,23 @@ export function emptyDay() {
   return { claimed: 0, complete: 0, incomplete: 0, open: 0 };
 }
 
+/** Today's kit list has painted. Month history must not start before this. */
+export function checklistReadyForMonthMarks({ kitsLoaded = false, checklistLoading = false } = {}) {
+  return Boolean(kitsLoaded) && !checklistLoading;
+}
+
+/**
+ * Admin Layout A loads the month on screen, and also the selected past day
+ * when that day sits in a different month. Staff load a month only while
+ * viewing a past day. Today's staff checklist does not need one.
+ */
+export function monthMarkTargets({ isAdmin = false, pastDate = false } = {}) {
+  if (isAdmin && pastDate) return ['view-month', 'selected-month'];
+  if (isAdmin) return ['view-month'];
+  if (pastDate) return ['selected-month'];
+  return [];
+}
+
 /** First and last Pacific day of a calendar month, plus a cache key. */
 export function monthRange(year, month) {
   const key = `${year}-${String(month).padStart(2, '0')}`;
