@@ -3,6 +3,7 @@
  * Admins see a month with per-day activity. Staff see a compact date chip.
  */
 
+import { normalizeHistoryRows } from './flow-shape.js';
 import { addDays, shiftMonth, splitYmd } from './time.js';
 
 function esc(value) {
@@ -91,7 +92,7 @@ export function outcomeForKit(rows, kitId) {
  */
 export function activityFromRows(rows) {
   const byDay = new Map();
-  for (const row of rows || []) {
+  for (const row of normalizeHistoryRows(rows) || []) {
     const day = row?.claimDate || row?.ClaimDate;
     if (!day || row?.kitId == null) continue;
     if (!byDay.has(day)) byDay.set(day, new Map());

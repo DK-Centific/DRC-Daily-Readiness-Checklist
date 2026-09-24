@@ -85,7 +85,7 @@ Errors: `KIT_CLAIMED` (someone already holds that kit that day), `ALREADY_HAVE_C
 
 `checkedOutByEmail` and `checkedOutByName` are blank until check-out. After check-out they are the person who released the kit. Older rows may omit them; the page then shows the claimant as the person who unclaimed. `CheckedOutByEmail` / `CheckedOutByName` are accepted too.
 
-The live log may send `date` instead of `claimDate`, and `claimId` instead of `id`. On every `getHistory` result the page copies `date` onto `claimDate` and `claimId` onto `id` when those page fields are missing. History and the calendar marks read `claimDate` and `id`.
+The live log may send `date` instead of `claimDate`, and `claimId` instead of `id` (`Date` and `ClaimId` are accepted too). On every `getHistory` result the page copies those onto `claimDate` and `id` when the page fields are missing, before History filters or calendar marks read the rows. History and the calendar marks read `claimDate` and `id`.
 
 Every signed-in person can read the kit log for all users. `userEmail` keeps rows where that person claimed the kit or released it. `from` and `to` are inclusive `YYYY-MM-DD` claim dates. `kitId` is optional. The History tab always sends `from` and `to`. It starts on today. **7 days** asks for the last 7 days. **All** starts with the last 14 days, and **Load older** moves `from` back another 14 days. The page sends `userEmail` of the signed-in person when **Mine** is on (on by default for Staff, off for an admin). The on-screen role **Staff** is stored as `User`. If a live flow still returns only that person’s own rows, the page shows what came back and, when they asked for someone else and nothing matched, a short note that the log may still be limited to them.
 

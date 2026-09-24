@@ -10,7 +10,7 @@ import {
   validateAccess,
   validateKit,
 } from './editor-state.js';
-import { isAdminRole, isTaskVisible, roleLabel } from './flow-shape.js';
+import { isAdminRole, isTaskVisible, normalizeHistoryRows, roleLabel } from './flow-shape.js';
 import {
   activityForDay,
   activityFromRows,
@@ -26,7 +26,7 @@ import {
   weekDates,
 } from './calendar-view.js';
 import { groupTasks, taskHint } from './task-groups.js';
-import { historyEvents } from './history-events.js';
+import { historyEvents, rowMatchesFilters as historyRowMatches } from './history-events.js';
 import { applyTheme, saveThemeChoice, watchSystemTheme } from './theme.js';
 import { mergeRuntimeConfig, parseLegacyConfigJs, parseLocalConfig } from './config-load.js';
 import { acceptedLoginUser, planSessionRestore } from './session-restore.js';
@@ -222,6 +222,7 @@ async function apiCall(action, params = {}, options = {}) {
     error.code = result && result.code;
     throw error;
   }
+  if (action === 'getHistory') return normalizeHistoryRows(result.data);
   return result.data;
 }
 
@@ -1897,12 +1898,12 @@ async function refreshMonthMarks(range) {
 
 function rowMatchesFilters(row) {
   const mine = Boolean(state.filters.mineOnly);
-  const email = String(mine ? state.user?.email : state.filters.userEmail || '').trim().toLowerCase();
-  if (email && !rowEmails(row).includes(email)) return false;
-  if (state.filters.kitId && String(row.kitId) !== String(state.filters.kitId)) return false;
-  if (state.filters.from && String(row.claimDate || '') < state.filters.from) return false;
-  if (state.filters.to && String(row.claimDate || '') > state.filters.to) return false;
-  return true;
+  return historyRowMatches(row, {
+    userEmail: mine ? state.user?.email : state.filters.userEmail,
+    kitId: state.filters.kitId,
+    from: state.filters.from,
+    to: state.filters.to,
+  });
 }
 
 async function refreshHistory() {

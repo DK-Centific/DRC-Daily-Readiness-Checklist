@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { historyEvents, unclaimActor } from '../js/history-events.js';
+import { historyEvents, rowMatchesFilters, unclaimActor } from '../js/history-events.js';
+import { normalizeHistoryRows } from '../js/flow-shape.js';
+import { activityFromRows } from '../js/calendar-view.js';
 
 test('an unclaim with no checkout person falls back to the person who claimed the kit', () => {
   const actor = unclaimActor({
@@ -37,6 +39,30 @@ test('an admin unclaim keeps the admin as the person who released the kit', () =
   });
   assert.equal(actor.name, 'Brian Leong');
   assert.equal(actor.email, 'brian.leong@centific.com');
+});
+
+test('a live history row for today stays in History after normalize', () => {
+  const today = '2026-09-23';
+  const live = {
+    claimId: 14,
+    date: today,
+    userEmail: 'jane.doe@centific.com',
+    kitId: 1,
+    kitName: 'Team 1',
+    checkInAt: '2026-09-23T15:00:00.000Z',
+    status: 'Claimed',
+  };
+  assert.equal(rowMatchesFilters(live, { from: today, to: today }), false);
+  const [row] = normalizeHistoryRows([live]);
+  assert.equal(row.id, 14);
+  assert.equal(row.claimDate, today);
+  assert.equal(rowMatchesFilters(row, { from: today, to: today }), true);
+  const events = historyEvents([live]);
+  assert.equal(events[0].kind, 'claimed');
+  assert.equal(events[0].id, '14-claimed');
+  assert.equal(events[0].claimDate, today);
+  assert.equal(events[0].kitName, 'Team 1');
+  assert.equal(activityFromRows([live])[today].open, 1);
 });
 
 test('history events list the newest action first and include both people', () => {

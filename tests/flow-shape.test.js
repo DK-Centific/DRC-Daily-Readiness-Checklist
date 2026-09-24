@@ -56,6 +56,11 @@ test('live history rows use claimDate and id', () => {
   assert.equal(activityFromRows(rows)['2026-09-23'].open, 1);
   const events = historyEvents(rows);
   assert.equal(events.some((event) => event.id === '10-claimed' && event.claimDate === '2026-09-24'), true);
+  const pascal = normalizeHistoryRows([{ ClaimId: 3, Date: '2026-09-23', KitID: 2, KitName: 'Team 1' }]);
+  assert.equal(pascal[0].id, 3);
+  assert.equal(pascal[0].claimDate, '2026-09-23');
+  assert.equal(pascal[0].kitId, 2);
+  assert.equal(pascal[0].kitName, 'Team 1');
   assert.equal(normalizeHistoryRows(null), null);
   assert.deepEqual(normalizeHistoryRows([{ id: 4, claimDate: '2026-09-24' }]), [{ id: 4, claimDate: '2026-09-24' }]);
 });
