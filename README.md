@@ -48,12 +48,9 @@ Next to **Sign out** there are three icons: sun (Light), monitor (System), moon 
 
 ### Date control
 
-Everyone currently sees the compact **Today** chip. **Change date** opens the full month. Days with a claim get a small dot. Two fuller layouts are built and waiting: one for admins with the month always open, and one lighter month for everyone. The page stays on the chip until that choice is made.
+Admins always see the month on the left, with a count and colored dots for each day that had a kit. Navy means someone is still checked in. Green means a kit was checked out with every task done. Amber means a kit was checked out with tasks still open. The Day summary under the month matches the day you clicked. A past day is view-only, with **Back to today**. On a phone, admins see the current week; **Sep** opens the full month.
 
-`config.js` can switch that per role without removing either control:
-
-- `calendar.staff` and `calendar.admin` are each `'chip'` or `'month'`.
-- `'month'` keeps the full month on the page.
+Everyone else sees **Today · Wed, Sep 23**. **Change date** opens the month. On a phone that month slides up from the bottom. **Clear** or **Cancel** closes it. **Today** jumps back to today. Future days cannot be selected.
 
 ## Practice mode and the real flow
 
@@ -109,7 +106,7 @@ That runs the checks in `tests/`. They cover: one open claim per kit per date, d
 - An admin can release someone else’s kit from the checklist. History then shows the admin as the person who unclaimed it. Older rows with no checkout person show the claimant instead. The owner’s check-out dialog uses the exact sentence “Please ensure you have completed the task.”
 - New emails must end in `@centific.com`, except the shared `admin-drc` id.
 - The last active admin cannot be removed.
-- Month arrows move the calendar only. The selected day changes when you click a day, Today, Yesterday, or Last week.
+- Month arrows move the calendar only. The selected day changes when you click a day or Today. Future days stay closed. A past day is view-only.
 - Kit management is in Settings (name, active, sort order). If no kits exist yet, a regular person sees “No kits set up yet, ask a DRC admin.” An admin gets a button that opens Settings to add the first kit.
 - The flow address belongs only in `config.local.js`. Nothing in git contains a real flow URL.
 - A non-admin who opens Settings actions gets the code `FORBIDDEN`. Unknown people get `NO_ACCESS`. A kit already claimed that day gets `KIT_CLAIMED`.

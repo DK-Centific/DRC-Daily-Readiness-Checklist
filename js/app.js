@@ -12,11 +12,17 @@ import {
 } from './editor-state.js';
 import { isAdminRole, isTaskVisible, roleLabel } from './flow-shape.js';
 import {
-  calendarLayout,
-  calendarMarks,
-  marksFromRows,
+  activityForDay,
+  activityFromRows,
+  monthRange,
+  outcomeForKit,
+  renderActivityCalendar,
   renderDateChip,
-  renderMonthCalendar,
+  renderDaySummary,
+  renderFilterBanner,
+  renderPlainMonth,
+  renderWeekStrip,
+  weekDates,
 } from './calendar-view.js';
 import { groupTasks, taskHint } from './task-groups.js';
 import { historyEvents } from './history-events.js';
@@ -36,8 +42,11 @@ import {
   formatChipDate,
   formatHistoryDay,
   formatLongDate,
+  formatMonthDay,
+  formatMonthShort,
   formatMonthYear,
   formatPtTime,
+  formatShortDay,
   formatPtDateTime,
   formatYmdLabel,
   pacificDate,
@@ -103,8 +112,10 @@ const state = {
   toast: null,
   conflictKitId: null,
   historyQuery: '',
-  monthHistoryMarks: {},
-  monthMarksKey: '',
+  monthActivity: {},
+  monthRows: {},
+  loadedMonths: new Set(),
+  adminMonthOpen: false,
 };
 
 let kitsSerial = 0;
@@ -388,8 +399,9 @@ function syncToast() {
 function render() {
   captureEditorFromDom();
   document.body.classList.toggle('modal-open', Boolean(state.modal));
-  const checkedIn = Boolean(state.user && state.tab === 'checklist' && myClaim());
+  const checkedIn = Boolean(state.user && state.tab === 'checklist' && myClaim() && !isPastDate());
   document.body.classList.toggle('has-phone-bar', checkedIn);
+  document.body.classList.toggle('sheet-open', Boolean(state.dateOpen && isPhoneLayout() && state.user && !isAdmin()));
   if (!state.ready) {
     app.innerHTML = '<main class="login-wrap" id="main"><p>Loading checklist…</p></main>';
     return;
@@ -568,65 +580,121 @@ function renderShell() {
     </div>`;
 }
 
-function visibleMonthMarks() {
-  return calendarMarks({
-    historyMarks: state.monthHistoryMarks,
-    kits: state.kits,
-    date: state.date,
-    email: state.user?.email,
-    kitsLoaded: state.kitsLoaded,
-  });
+function isPastDate(ymd = state.date) {
+  return Boolean(ymd) && ymd < pacificDate();
 }
 
-function monthCalendarHtml(layout) {
+function isPhoneLayout() {
+  return typeof window !== 'undefined' && Boolean(window.matchMedia?.('(max-width: 720px)')?.matches);
+}
+
+function monthModel() {
   const today = pacificDate();
   const cells = calendarCells(state.viewYear, state.viewMonth);
-  const tabStop = cells.includes(state.date)
-    ? state.date
-    : cells.find((ymd) => splitYmd(ymd).month === state.viewMonth);
-  const marks = visibleMonthMarks();
-  const days = cells.map((ymd) => {
-    const { day, month } = splitYmd(ymd);
-    return {
-      ymd,
-      dayNumber: day,
-      outside: month !== state.viewMonth,
-      label: formatLongDate(ymd),
-      tabStop: ymd === tabStop,
-    };
-  });
-  const quick = [
-    ['today', 'Today', today],
-    ['yesterday', 'Yesterday', addDays(today, -1)],
-    ['lastweek', 'Last week', addDays(today, -7)],
-  ].map(([id, label, ymd]) => ({ id, label, pressed: state.date === ymd }));
-  return renderMonthCalendar({
+  const inMonth = cells.filter((ymd) => splitYmd(ymd).month === state.viewMonth);
+  const selectedInView = state.date && splitYmd(state.date).month === state.viewMonth && cells.includes(state.date);
+  const tabStop = selectedInView ? state.date : inMonth[0];
+  const range = monthRange(state.viewYear, state.viewMonth);
+  const loaded = Object.prototype.hasOwnProperty.call(state.monthActivity, range.key);
+  return {
+    today,
     monthLabel: formatMonthYear(state.viewYear, state.viewMonth),
+    range,
+    loaded,
+    activity: state.monthActivity[range.key] || {},
+    days: cells.map((ymd) => {
+      const parts = splitYmd(ymd);
+      return {
+        ymd,
+        dayNumber: parts.day,
+        outside: parts.month !== state.viewMonth,
+        future: ymd > today,
+        label: formatLongDate(ymd),
+        tabStop: ymd === tabStop,
+      };
+    }),
+  };
+}
+
+function selectedDayActivity() {
+  if (!state.date) return { loaded: false, day: activityForDay(null, '') };
+  const parts = splitYmd(state.date);
+  const key = monthRange(parts.year, parts.month).key;
+  const loaded = Object.prototype.hasOwnProperty.call(state.monthActivity, key);
+  return { loaded, day: activityForDay(state.monthActivity[key], state.date) };
+}
+
+function renderAdminCalendar() {
+  const model = monthModel();
+  const selected = selectedDayActivity();
+  return `
+    ${renderActivityCalendar({
+      monthLabel: model.monthLabel,
+      days: model.days,
+      selected: state.date,
+      today: model.today,
+      activity: model.activity,
+      loading: !model.loaded,
+      weekdays: WEEKDAYS,
+    })}
+    ${renderDaySummary({
+      label: formatShortDay(state.date || model.today),
+      activity: selected.day,
+      loaded: selected.loaded,
+    })}`;
+}
+
+function renderAdminWeek() {
+  const today = pacificDate();
+  const anchor = state.date || today;
+  const letters = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+  const days = weekDates(anchor).map((ymd) => ({
+    ymd,
+    dayNumber: splitYmd(ymd).day,
+    weekday: letters[new Date(Date.UTC(splitYmd(ymd).year, splitYmd(ymd).month - 1, splitYmd(ymd).day)).getUTCDay()],
+  }));
+  const strip = renderWeekStrip({
     days,
     selected: state.date,
     today,
-    marks,
-    layout,
-    weekdays: WEEKDAYS,
-    quick,
+    monthLabel: formatMonthShort(state.viewYear, state.viewMonth),
+    expanded: state.adminMonthOpen,
   });
+  return state.adminMonthOpen ? `${strip}${renderAdminCalendar()}` : strip;
 }
 
 function renderDateSection() {
   const today = pacificDate();
-  if (calendarLayout(state.config, isAdmin()) === 'month') {
-    return monthCalendarHtml('panel');
-  }
+  const model = monthModel();
+  const picker = state.dateOpen
+    ? renderPlainMonth({
+      monthLabel: model.monthLabel,
+      days: model.days,
+      selected: state.date,
+      today,
+      weekdays: WEEKDAYS,
+      layout: isPhoneLayout() ? 'sheet' : 'popover',
+    })
+    : '';
   return `
     <div class="date-row">
       ${renderDateChip(formatChipDate(state.date || today, today))}
       <button type="button" class="btn btn-ghost" id="change-date" data-action="toggle-date" aria-expanded="${state.dateOpen}">Change date</button>
-      ${state.dateOpen ? monthCalendarHtml('popover') : ''}
+      ${picker}
     </div>`;
 }
 
-function stepRail(step) {
-  const items = [[1, 'Date'], [2, 'Kit'], [3, 'Checklist']];
+function renderPastBanner() {
+  const selected = selectedDayActivity();
+  return renderFilterBanner({
+    label: formatShortDay(state.date),
+    kitsLabel: state.kitsLoaded ? String(state.kits.length) : '…',
+    claimedLabel: selected.loaded ? String(selected.day.claimed) : '…',
+  });
+}
+
+function stepRail(step, dateLabel) {
+  const items = [[1, dateLabel || 'Date'], [2, 'Kit'], [3, 'Checklist']];
   return `<div class="stepper" aria-label="Progress">${items.map(([number, label], index) => {
     const cls = number < step ? 'done' : number === step ? 'active' : '';
     const mark = number < step ? '✓' : String(number);
@@ -636,24 +704,30 @@ function stepRail(step) {
 }
 
 function renderChecklist() {
-  const mine = state.kits.find((kit) => kit.claim && kit.claim.userEmail === state.user?.email);
+  const past = isPastDate();
+  const mine = past ? null : state.kits.find((kit) => kit.claim && kit.claim.userEmail === state.user?.email);
   const step = mine ? 3 : 2;
-  return `
-    ${stepRail(step)}
+  const showKits = past || !mine || isAdmin();
+  const main = `
+    ${past ? renderPastBanner() : ''}
+    ${stepRail(step, past ? formatMonthDay(state.date) : '')}
     ${banner('err', state.error, state.errorCode)}
     ${banner('ok', state.message)}
-    <p class="section-label">1 · Date</p>
-    ${renderDateSection()}
+    ${isAdmin() ? '' : `<p class="section-label">1 · Date</p>${renderDateSection()}`}
     ${mine ? renderSession(mine) : ''}
-    ${!mine || isAdmin() ? `
-      <p class="section-label">2 · Kit</p>
+    ${showKits ? `
+      <p class="section-label">2 · Kit${past ? ' (read-only)' : ''}</p>
       ${banner('err', state.kitsError, state.kitsCode)}
       ${state.kits.length ? renderKitTiles() : renderEmptyKits()}
-      ${mine && state.selectedKitId === mine.id ? '' : renderCheckButton()}
+      ${past ? '<p class="note-readonly">Past date — view only. Check-in is disabled.</p>' : ''}
+      ${past || (mine && state.selectedKitId === mine.id) ? '' : renderCheckButton()}
     ` : ''}
     <p class="section-label">3 · Checklist</p>
     ${renderTasks()}
     ${mine ? renderPhoneBar(mine) : ''}`;
+  if (!isAdmin()) return main;
+  if (isPhoneLayout()) return `${renderAdminWeek()}${main}`;
+  return `<div class="split-layout"><aside>${renderAdminCalendar()}</aside><div>${main}</div></div>`;
 }
 
 function renderEmptyKits() {
@@ -677,8 +751,51 @@ function kitTileMeta(kit) {
   return 'No check-in today';
 }
 
+function pastKitPresentation(kit) {
+  const parts = splitYmd(state.date);
+  const key = monthRange(parts.year, parts.month).key;
+  const known = Object.prototype.hasOwnProperty.call(state.monthRows, key);
+  if (!known) {
+    if (kit.claim) {
+      const who = kit.claim.userName || kit.claim.userEmail;
+      return { badgeClass: 'badge-yours', badge: `Claimed · ${who}`, meta: `Checked in ${formatPtTime(kit.claim.checkInAt)}` };
+    }
+    if (kit.lastCheckedOut?.checkOutAt) {
+      const who = kit.lastCheckedOut.userName || kit.lastCheckedOut.userEmail || 'Checked out';
+      return { badgeClass: 'badge-sage', badge: 'Checked out', meta: `${who} · out ${formatPtTime(kit.lastCheckedOut.checkOutAt)}` };
+    }
+    return { badgeClass: 'badge-available', badge: 'No claim', meta: 'Idle that day' };
+  }
+  const rows = (state.monthRows[key] || []).filter((row) => row.claimDate === state.date);
+  const outcome = outcomeForKit(rows, kit.id);
+  if (!outcome) return { badgeClass: 'badge-available', badge: 'No claim', meta: 'Idle that day' };
+  if (outcome.kind === 'open') {
+    const who = outcome.userName || outcome.userEmail;
+    return { badgeClass: 'badge-yours', badge: `Claimed · ${who}`, meta: `Checked in ${formatPtTime(outcome.checkInAt)}` };
+  }
+  const total = Number.isFinite(outcome.tasksTotal) ? outcome.tasksTotal : 0;
+  const done = Number.isFinite(outcome.tasksCompleted) ? outcome.tasksCompleted : 0;
+  const fraction = total > 0 ? ` · ${done}/${total}` : '';
+  const who = outcome.userName || outcome.userEmail || 'Checked out';
+  return {
+    badgeClass: outcome.kind === 'incomplete' ? 'badge-amber' : 'badge-sage',
+    badge: `Checked out${fraction}`,
+    meta: `${who} · out ${formatPtTime(outcome.checkOutAt)}`,
+  };
+}
+
 function renderKitTiles() {
+  const past = isPastDate();
   const tiles = state.kits.map((kit) => {
+    if (past) {
+      const view = pastKitPresentation(kit);
+      return `
+        <button type="button" class="kit-tile" disabled>
+          <p class="kit-name">${esc(kit.name)}</p>
+          <span class="badge ${view.badgeClass}">${esc(view.badge)}</span>
+          <span class="kit-meta">${esc(view.meta)}</span>
+        </button>`;
+    }
     const claim = kit.claim;
     const mine = claim && claim.userEmail === state.user.email;
     const locked = Boolean(claim && !mine);
@@ -786,6 +903,9 @@ function renderTasks() {
   const kit = selectedKit();
   const claim = myClaim();
   const totalTasks = state.tasks.length || 18;
+  if (isPastDate()) {
+    return `<section class="card preview-disabled"><div class="preview-msg"><strong>Past date — view only</strong>Checklist history is available from the History tab for past check-outs.</div></section>`;
+  }
   if (!claim) {
     const text = kit?.claim
       ? 'Tasks stay with the person who has this kit checked in.'
@@ -1280,6 +1400,7 @@ async function refreshTasks({ force = false } = {}) {
 }
 
 function setDate(ymd, { focusDay = false } = {}) {
+  if (!ymd || ymd > pacificDate()) return;
   state.date = ymd;
   const parts = splitYmd(ymd);
   state.viewYear = parts.year;
@@ -1304,7 +1425,7 @@ function setDate(ymd, { focusDay = false } = {}) {
 
 async function checkIn() {
   const kit = selectedKit();
-  if (!kit || kit.claim || state.pendingCheckIn) return;
+  if (!kit || kit.claim || state.pendingCheckIn || isPastDate()) return;
   const date = state.date;
   const snapshot = cloneData(state.kits);
   const checkInAt = new Date().toISOString();
@@ -1340,6 +1461,7 @@ async function checkIn() {
     state.message = formatClaimMessage(data.kitName, data.date, data.checkInAt);
     state.selectedKitId = data.kitId;
     storeKits(date, state.kits);
+    invalidateMonthActivity();
   } catch (error) {
     if (!isAbort(error)) {
       storeKits(date, snapshot);
@@ -1360,7 +1482,7 @@ async function checkIn() {
 
 function openCheckout(type) {
   const kit = selectedKit();
-  if (!kit?.claim || kit.claim.pending) return;
+  if (!kit?.claim || kit.claim.pending || isPastDate()) return;
   const phone = window.matchMedia('(max-width: 720px)').matches;
   state.modal = {
     type,
@@ -1416,6 +1538,7 @@ async function confirmModal() {
       tasksTotal: state.tasks.length,
     });
     storeKits(date, state.kits);
+    invalidateMonthActivity();
   } catch (error) {
     if (!isAbort(error)) {
       storeKits(date, snapshot);
@@ -1557,32 +1680,55 @@ function showCachedHistory() {
 let marksSerial = 0;
 let marksFlight = '';
 
-function scheduleMonthMarks() {
-  if (!state.user || state.tab !== 'checklist') return;
-  const showMonth = calendarLayout(state.config, isAdmin()) === 'month' || state.dateOpen;
-  if (!showMonth) return;
-  const cells = calendarCells(state.viewYear, state.viewMonth);
-  const key = `${cells[0]}:${cells[cells.length - 1]}`;
-  if (state.monthMarksKey === key || marksFlight === key) return;
-  refreshMonthMarks(key);
+function monthRangesToLoad() {
+  if (!state.user || state.tab !== 'checklist') return [];
+  const ranges = [];
+  if (isAdmin()) ranges.push(monthRange(state.viewYear, state.viewMonth));
+  if (isPastDate()) {
+    const parts = splitYmd(state.date);
+    ranges.push(monthRange(parts.year, parts.month));
+  }
+  const seen = new Set();
+  return ranges.filter((range) => {
+    if (seen.has(range.key) || state.loadedMonths.has(range.key)) return false;
+    seen.add(range.key);
+    return true;
+  });
 }
 
-async function refreshMonthMarks(key) {
+function invalidateMonthActivity() {
+  state.loadedMonths = new Set();
+  marksFlight = '';
+  marksSerial += 1;
+}
+
+function scheduleMonthMarks() {
+  const pending = monthRangesToLoad().filter((range) => marksFlight !== range.key);
+  if (!pending.length) return;
+  refreshMonthMarks(pending[0]);
+}
+
+async function refreshMonthMarks(range) {
   const serial = ++marksSerial;
-  marksFlight = key;
-  const [from, to] = key.split(':');
+  marksFlight = range.key;
   const actor = state.user?.email;
   try {
-    const rows = await apiCall('getHistory', { from, to }, { lane: 'calendar-marks' });
+    const rows = await apiCall('getHistory', { from: range.from, to: range.to }, { lane: 'calendar-marks' });
     if (serial !== marksSerial || state.user?.email !== actor) return;
-    state.monthHistoryMarks = marksFromRows(rows, actor);
-    state.monthMarksKey = key;
+    state.monthRows[range.key] = rows;
+    state.monthActivity[range.key] = activityFromRows(rows);
+    state.loadedMonths.add(range.key);
     if (state.tab === 'checklist') render();
   } catch (error) {
     if (isAbort(error) || serial !== marksSerial) return;
-    state.monthMarksKey = key;
+    if (!Object.prototype.hasOwnProperty.call(state.monthActivity, range.key)) {
+      state.monthRows[range.key] = [];
+      state.monthActivity[range.key] = {};
+    }
+    state.loadedMonths.add(range.key);
+    if (state.tab === 'checklist') render();
   } finally {
-    if (marksFlight === key) marksFlight = '';
+    if (serial === marksSerial && marksFlight === range.key) marksFlight = '';
   }
 }
 
@@ -1742,14 +1888,16 @@ function signOut() {
   state.editor = null;
   state.modal = null;
   state.dateOpen = false;
+  state.adminMonthOpen = false;
   state.settingsPane = 'people';
   state.taskUi = new Map();
   state.groupManual = {};
   state.toast = null;
   state.conflictKitId = null;
   state.historyQuery = '';
-  state.monthHistoryMarks = {};
-  state.monthMarksKey = '';
+  state.monthActivity = {};
+  state.monthRows = {};
+  state.loadedMonths = new Set();
   marksSerial += 1;
   marksFlight = '';
   state.signingIn = false;
@@ -1959,8 +2107,9 @@ function onClick(event) {
   let closeDate = false;
   if (state.dateOpen) {
     const pop = document.getElementById('date-popover');
+    const sheet = document.getElementById('date-sheet');
     const opener = document.getElementById('change-date');
-    if (!pop?.contains(event.target) && !opener?.contains(event.target)) {
+    if (!pop?.contains(event.target) && !sheet?.contains(event.target) && !opener?.contains(event.target)) {
       state.dateOpen = false;
       closeDate = true;
     }
@@ -1998,11 +2147,13 @@ function onClick(event) {
     state.viewMonth = next.month;
     render();
   } else if (action === 'pick-date') setDate(button.dataset.date);
-  else if (action === 'quick-date') {
-    const today = pacificDate();
-    const which = button.dataset.which;
-    const ymd = which === 'today' ? today : which === 'yesterday' ? addDays(today, -1) : addDays(today, -7);
-    setDate(ymd);
+  else if (action === 'back-today') setDate(pacificDate());
+  else if (action === 'close-date') {
+    state.dateOpen = false;
+    render();
+  } else if (action === 'toggle-admin-month') {
+    state.adminMonthOpen = !state.adminMonthOpen;
+    render();
   } else if (action === 'go-settings-kits') {
     state.openKitForm = true;
     state.settingsPane = 'kits';
@@ -2022,6 +2173,11 @@ function onClick(event) {
     refreshHistory();
   } else if (action === 'toggle-date') {
     state.dateOpen = !state.dateOpen;
+    if (state.dateOpen && state.date) {
+      const parts = splitYmd(state.date);
+      state.viewYear = parts.year;
+      state.viewMonth = parts.month;
+    }
     render();
   } else if (action === 'select-kit') {
     const id = Number(button.dataset.id);
@@ -2155,6 +2311,12 @@ function onKeyDown(event) {
     }
     return;
   }
+  if (event.key === 'Escape' && state.dateOpen) {
+    event.preventDefault();
+    state.dateOpen = false;
+    render();
+    return;
+  }
   if (event.target?.dataset?.date && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) {
     event.preventDefault();
     const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 }[event.key];
@@ -2186,9 +2348,17 @@ document.addEventListener('input', (event) => {
 });
 document.addEventListener('keydown', onKeyDown);
 
+function watchPhoneLayout() {
+  const query = window.matchMedia?.('(max-width: 720px)');
+  query?.addEventListener?.('change', () => {
+    if (state.user) render();
+  });
+}
+
 async function init() {
   applyTheme();
   watchSystemTheme(() => paintThemeToggle());
+  watchPhoneLayout();
   state.config = await loadConfig();
   state.api = createClient({
     backend: state.config.backend,
