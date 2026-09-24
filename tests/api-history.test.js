@@ -38,3 +38,34 @@ test('every getHistory result maps live date and claimId', async () => {
     globalThis.fetch = original;
   }
 });
+
+test('getKits turns a stringified completedTaskIds into an array', async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = async (_url, options) => {
+    const body = JSON.parse(options.body);
+    const data = body.action === 'getKits'
+      ? [{
+        id: 1,
+        name: 'Kit 01',
+        claim: {
+          claimId: 10,
+          userEmail: 'jane.doe@centific.com',
+          completedTaskIds: '[1, 3]',
+        },
+      }]
+      : { claimId: 10, completedTaskIds: '["1","3"]' };
+    return {
+      ok: true,
+      json: async () => ({ ok: true, data }),
+    };
+  };
+  try {
+    const api = createClient({ backend: 'pa', flowUrl: 'https://example.test/flow' });
+    const kits = await api.call({ action: 'getKits', actor: 'jane.doe@centific.com', date: '2026-09-24' });
+    assert.deepEqual(kits.data[0].claim.completedTaskIds, [1, 3]);
+    const saved = await api.call({ action: 'updateTasks', actor: 'jane.doe@centific.com', claimId: 10, completedTaskIds: [1, 3] });
+    assert.deepEqual(saved.data.completedTaskIds, [1, 3]);
+  } finally {
+    globalThis.fetch = original;
+  }
+});

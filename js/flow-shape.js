@@ -35,6 +35,66 @@ function fillAlias(next, row, target, keys) {
   next[target] = typeof value === 'string' ? value.trim() : value;
 }
 
+function taskId(value) {
+  if (typeof value === 'string' && /^-?\d+$/.test(value.trim())) {
+    const number = Number(value);
+    if (Number.isSafeInteger(number)) return number;
+  }
+  return value;
+}
+
+/**
+ * Live getKits sometimes sends completedTaskIds as a JSON string.
+ * A real array is left as-is. A string that is not a JSON array is left as-is
+ * so the page can still fall back to getHistory.
+ */
+export function coerceCompletedTaskIds(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== 'string') return value;
+  let parsed = value;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    if (typeof parsed !== 'string') break;
+    const text = parsed.trim();
+    if (!text) return value;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      return value;
+    }
+  }
+  if (!Array.isArray(parsed)) return value;
+  return parsed.map(taskId);
+}
+
+function withCompletedTaskIds(record) {
+  if (!record || typeof record !== 'object' || Array.isArray(record)) return record;
+  const raw = hasValue(record.completedTaskIds)
+    ? record.completedTaskIds
+    : firstFilled(record, ['CompletedTaskIDs', 'CompletedTaskIds']);
+  if (raw === undefined) return record;
+  const ids = coerceCompletedTaskIds(raw);
+  if (!Array.isArray(ids)) return record;
+  if (ids === record.completedTaskIds) return record;
+  return { ...record, completedTaskIds: ids };
+}
+
+/** History is only needed when this open claim still has no task-id array. */
+export function openClaimNeedsTaskHydrate(claim) {
+  if (!claim || typeof claim !== 'object') return false;
+  return !Array.isArray(coerceCompletedTaskIds(claim.completedTaskIds));
+}
+
+/** Copy stringified claim task ids onto a real array before the page decides to hydrate. */
+export function normalizeKitClaims(kits) {
+  if (!Array.isArray(kits)) return kits;
+  return kits.map((kit) => {
+    if (!kit || typeof kit !== 'object' || !kit.claim || typeof kit.claim !== 'object') return kit;
+    const claim = withCompletedTaskIds(kit.claim);
+    if (claim === kit.claim) return kit;
+    return { ...kit, claim };
+  });
+}
+
 /**
  * Live getHistory uses date and claimId. The page reads claimDate and id.
  * PascalCase aliases are copied onto the camelCase fields when those are blank.
@@ -56,7 +116,7 @@ export function normalizeHistoryRow(row) {
   fillAlias(next, row, 'completedTaskIds', ['CompletedTaskIDs', 'CompletedTaskIds']);
   fillAlias(next, row, 'checkedOutByEmail', ['CheckedOutByEmail']);
   fillAlias(next, row, 'checkedOutByName', ['CheckedOutByName']);
-  return next;
+  return withCompletedTaskIds(next);
 }
 
 export function normalizeHistoryRows(rows) {

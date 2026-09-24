@@ -10,10 +10,12 @@ import {
   validateAccess,
   validateKit,
 } from './editor-state.js';
-import { isAdminRole, isTaskVisible, normalizeHistoryRows, roleLabel } from './flow-shape.js';
+import { coerceCompletedTaskIds, isAdminRole, isTaskVisible, normalizeHistoryRows, normalizeKitClaims, openClaimNeedsTaskHydrate, roleLabel } from './flow-shape.js';
 import {
   activityForDay,
   activityFromRows,
+  checklistReadyForMonthMarks,
+  monthMarkTargets,
   monthRange,
   outcomeForKit,
   renderActivityCalendar,
@@ -223,6 +225,11 @@ async function apiCall(action, params = {}, options = {}) {
     throw error;
   }
   if (action === 'getHistory') return normalizeHistoryRows(result.data);
+  if (action === 'getKits') return normalizeKitClaims(result.data);
+  if (action === 'updateTasks' && result.data && typeof result.data === 'object') {
+    const ids = coerceCompletedTaskIds(result.data.completedTaskIds);
+    if (Array.isArray(ids)) return { ...result.data, completedTaskIds: ids };
+  }
   return result.data;
 }
 
@@ -1173,7 +1180,7 @@ function renderAccessEditor() {
       <h2 class="section" id="access-heading">Who can sign in</h2>
       <p class="meta spaced">Name, email, role (Admin or Staff), and whether they can sign in.</p>
       ${form}
-      ${state.access.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Email</th><th>Name</th><th>Role</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>` : '<p>No one is on the access list yet.</p>'}
+      ${state.access.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Email</th><th>Name</th><th>Role</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>` : (state.loading.settings ? '<p class="refreshing" role="status">Refreshing…</p>' : '<p>No one is on the access list yet.</p>')}
     </section>`;
 }
 
@@ -1228,7 +1235,7 @@ function renderKitEditor() {
       <h2 class="section" id="kits-heading">Kits</h2>
       <p class="meta spaced">Enable, rename, and see who holds each kit today. Sort order must be a whole number.</p>
       ${form}
-      ${state.allKits.length ? rows : '<p id="kits-empty">No kits yet. Add a kit here so people can check in.</p>'}
+      ${state.allKits.length ? rows : (state.loading.settings ? '<p class="refreshing" role="status">Refreshing…</p>' : '<p id="kits-empty">No kits yet. Add a kit here so people can check in.</p>')}
     </section>`;
 }
 
@@ -1357,10 +1364,6 @@ function enterApp(user) {
   render();
   const jobs = [refreshKits(state.date, { preferMine: true })];
   if (!state.tasksLoaded) jobs.push(refreshTasks());
-  if (isAdmin()) {
-    jobs.push(refreshAccess());
-    jobs.push(refreshKitList());
-  }
   Promise.all(jobs).catch(() => {});
 }
 
@@ -1393,7 +1396,7 @@ async function refreshKits(date, { preferMine = false } = {}) {
   state.kitsCode = '';
   if (state.tab === 'checklist') render();
   try {
-    const kits = await apiCall('getKits', { date }, { lane: 'kits' });
+    const kits = normalizeKitClaims(await apiCall('getKits', { date }, { lane: 'kits' }));
     if (serial !== kitsSerial || state.user?.email !== actor || state.date !== date || state.kitHold > 0) return;
     kits.forEach((kit) => rememberKit(kit.id, kit.name));
     storeKits(date, kits);
@@ -1405,7 +1408,7 @@ async function refreshKits(date, { preferMine = false } = {}) {
         state.error = `${taken.name} was just claimed by ${taken.claim.userName}. Pick another kit.`;
       }
     }
-    const missing = kits.some((kit) => kit.claim && kit.claim.userEmail === actor && !Array.isArray(kit.claim.completedTaskIds));
+    const missing = kits.some((kit) => kit.claim?.userEmail === actor && openClaimNeedsTaskHydrate(kit.claim));
     if (missing) hydrateTaskIds(date, serial);
   } catch (error) {
     if (isAbort(error) || serial !== kitsSerial || state.date !== date) return;
@@ -1429,9 +1432,10 @@ async function hydrateTaskIds(date, serial) {
     if (serial !== kitsSerial || state.date !== date || state.kitHold > 0) return;
     for (const kit of state.kits) {
       const claim = kit.claim;
-      if (!claim || Array.isArray(claim.completedTaskIds)) continue;
+      if (!openClaimNeedsTaskHydrate(claim)) continue;
       const row = rows.find((item) => item.id === claim.claimId);
-      claim.completedTaskIds = row?.completedTaskIds || [];
+      const ids = coerceCompletedTaskIds(row?.completedTaskIds);
+      claim.completedTaskIds = Array.isArray(ids) ? ids : [];
     }
     if (state.tab === 'checklist') render();
   } catch (error) {
@@ -1766,8 +1770,14 @@ async function flushTasks() {
       completedTaskIds: ids,
     }, { lane: `tasks-save:${claim.claimId}` });
     if (serial !== taskSeq) return;
-    claim.completedTaskIds = saved.completedTaskIds;
-    confirmedTaskIds = [...saved.completedTaskIds];
+    const savedIds = coerceCompletedTaskIds(saved?.completedTaskIds);
+    if (!Array.isArray(savedIds)) {
+      const error = new Error('Could not read saved tasks.');
+      error.code = 'BAD_RESPONSE';
+      throw error;
+    }
+    claim.completedTaskIds = savedIds;
+    confirmedTaskIds = [...savedIds];
     state.tasksError = '';
     state.tasksCode = '';
     for (const id of [...state.taskUi.keys()]) {
@@ -1847,9 +1857,10 @@ let marksFlight = '';
 
 function monthRangesToLoad() {
   if (!state.user || state.tab !== 'checklist') return [];
+  const targets = monthMarkTargets({ isAdmin: isAdmin(), pastDate: isPastDate() });
   const ranges = [];
-  if (isAdmin()) ranges.push(monthRange(state.viewYear, state.viewMonth));
-  if (isPastDate()) {
+  if (targets.includes('view-month')) ranges.push(monthRange(state.viewYear, state.viewMonth));
+  if (targets.includes('selected-month') && state.date) {
     const parts = splitYmd(state.date);
     ranges.push(monthRange(parts.year, parts.month));
   }
@@ -1868,6 +1879,10 @@ function invalidateMonthActivity() {
 }
 
 function scheduleMonthMarks() {
+  if (!checklistReadyForMonthMarks({
+    kitsLoaded: state.kitsLoaded,
+    checklistLoading: state.loading.checklist,
+  })) return;
   const pending = monthRangesToLoad().filter((range) => marksFlight !== range.key);
   if (!pending.length) return;
   refreshMonthMarks(pending[0]);
