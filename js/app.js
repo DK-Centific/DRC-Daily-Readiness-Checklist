@@ -165,7 +165,7 @@ function renderLogin() {
         <p>Sign in with your Centific ID. Only people on the access list can continue.</p>
         ${banner('err', state.error, state.errorCode)}
         ${banner('info', state.notice)}
-        <form id="login-form" class="stack">
+        <form id="login-form" class="stack" method="post" action="#">
           <div>
             <label for="email">Centific ID</label>
             <input id="email" name="email" type="text" autocomplete="username" spellcheck="false" required placeholder="firstName.lastName@centific.com" value="${esc(state.loginEmail)}">
@@ -414,7 +414,7 @@ function renderHistory() {
     <section class="card" aria-labelledby="history-heading">
       <h2 id="history-heading">${isAdmin() ? 'History for everyone' : 'Your history'}</h2>
       ${banner('err', state.historyError, state.historyCode)}
-      <form id="history-form" class="filters">
+      <form id="history-form" class="filters" method="post" action="#">
         ${userFilter}
         <div>
           <label for="filter-kit">Kit</label>
@@ -481,8 +481,8 @@ function renderAccessEditor() {
       </li>`;
   }).join('');
   const form = editing ? `
-    <form id="access-form" class="form-grid">
-      <input type="hidden" name="id" value="${editing.id ?? ''}">
+    <form id="access-form" class="form-grid" method="post" action="#">
+      <input type="hidden" name="recordId" value="${editing.id ?? ''}">
       <div>
         <label for="person-name">Name</label>
         <input id="person-name" name="name" type="text" required value="${esc(editing.name)}">
@@ -548,8 +548,8 @@ function renderKitEditor() {
     </li>
   `).join('');
   const form = editing ? `
-    <form id="kit-form" class="form-grid">
-      <input type="hidden" name="id" value="${editing.id ?? ''}">
+    <form id="kit-form" class="form-grid" method="post" action="#">
+      <input type="hidden" name="recordId" value="${editing.id ?? ''}">
       <div>
         <label for="kit-name">Kit name</label>
         <input id="kit-name" name="name" type="text" required value="${esc(editing.name)}">
@@ -911,7 +911,7 @@ function resetDemo() {
 function personFromForm(form) {
   const data = new FormData(form);
   return {
-    id: data.get('id') ? Number(data.get('id')) : undefined,
+    id: data.get('recordId') ? Number(data.get('recordId')) : undefined,
     name: String(data.get('name') || '').trim(),
     email: String(data.get('email') || '').trim(),
     firstName: String(data.get('firstName') || '').trim(),
@@ -948,7 +948,7 @@ async function saveAccess(form) {
 async function saveKit(form) {
   const data = new FormData(form);
   const payload = {
-    id: data.get('id') ? Number(data.get('id')) : undefined,
+    id: data.get('recordId') ? Number(data.get('recordId')) : undefined,
     name: String(data.get('name') || '').trim(),
     sortOrder: data.get('sortOrder') === '' ? undefined : Number(data.get('sortOrder')),
     notes: String(data.get('notes') || ''),
@@ -1084,11 +1084,12 @@ function onClick(event) {
 function onSubmit(event) {
   const form = event.target;
   if (!(form instanceof HTMLFormElement)) return;
-  if (form.id === 'login-form') {
-    event.preventDefault();
+  event.preventDefault();
+  // Use the attribute. An input named "id" would hide form.id.
+  const formId = form.getAttribute('id');
+  if (formId === 'login-form') {
     signIn(new FormData(form).get('email'));
-  } else if (form.id === 'history-form') {
-    event.preventDefault();
+  } else if (formId === 'history-form') {
     const data = new FormData(form);
     state.filters = {
       userEmail: String(data.get('userEmail') || ''),
@@ -1097,11 +1098,9 @@ function onSubmit(event) {
       to: String(data.get('to') || ''),
     };
     loadHistory();
-  } else if (form.id === 'access-form') {
-    event.preventDefault();
+  } else if (formId === 'access-form') {
     saveAccess(form);
-  } else if (form.id === 'kit-form') {
-    event.preventDefault();
+  } else if (formId === 'kit-form') {
     saveKit(form);
   }
 }
