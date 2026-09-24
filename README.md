@@ -55,6 +55,8 @@ You can also force a mode in the address bar:
 - [http://localhost:8790/?backend=mock](http://localhost:8790/?backend=mock)
 - [http://localhost:8790/?backend=pa](http://localhost:8790/?backend=pa)
 
+To feel a slow connection, open [http://localhost:8790/?backend=mock&latency=3000](http://localhost:8790/?backend=mock&latency=3000). Tabs still switch right away and show **Refreshing…** while the sample data catches up. Add `&debug=1` and open the browser console to see each action and how many milliseconds it took.
+
 `config.local.js` is ignored by git. Do not commit a real flow URL or signature.
 
 The page sends `POST` JSON `{ "action", "actor", ... }` to `FLOW_URL`. The contract is in [docs/DRC_SPEC_AND_API_CONTRACT.md](docs/DRC_SPEC_AND_API_CONTRACT.md). Field names the page expects are in [docs/CLIENT_NOTES.md](docs/CLIENT_NOTES.md).

@@ -454,6 +454,13 @@ button:disabled, .primary:disabled {
 
 .who-line { margin: 0.35rem 0 0; font-weight: 650; }
 
+.refreshing {
+  margin: 0.35rem 0 0.6rem;
+  color: var(--muted);
+  font-size: 0.92rem;
+  min-height: 1.2em;
+}
+
 .filters .actions { display: flex; gap: 0.5rem; align-items: end; }
 
 .manage-head {

@@ -2,6 +2,14 @@ import { createClient } from './api.js';
 import { isAdminRole, isTaskVisible, roleLabel } from './flow-shape.js';
 import { historyEvents } from './history-events.js';
 import {
+  TASK_SAVE_WAIT_MS,
+  TASKS_CACHE_KEY,
+  createDebouncedFlush,
+  defaultHistoryRange,
+  readTaskCache,
+  writeTaskCache,
+} from './requests.js';
+import {
   addDays,
   calendarCells,
   formatClaimMessage,
@@ -52,13 +60,29 @@ const state = {
   settingsNotice: '',
   editor: null,
   modal: null,
-  busy: false,
+  signingIn: false,
+  pendingCheckIn: false,
+  pendingCheckOut: false,
+  pendingSave: '',
+  pendingToggle: '',
+  kitHold: 0,
+  loading: { checklist: false, history: false, settings: false, tasks: false },
+  kitsLoaded: false,
+  kitsByDate: new Map(),
+  historyCache: new Map(),
+  historyReady: false,
   kitChoices: new Map(),
 };
 
-let loadSerial = 0;
+let kitsSerial = 0;
+let historySerial = 0;
+let settingsSerial = 0;
+let taskSeq = 0;
+let taskFetchSerial = 0;
+let confirmedTaskIds = null;
 
 const app = document.getElementById('app');
+const taskFlush = createDebouncedFlush(TASK_SAVE_WAIT_MS, () => { flushTasks(); });
 
 function esc(value) {
   return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
@@ -83,18 +107,31 @@ function banner(kind, message, code) {
   return `<div class="banner ${kind}" role="${kind === 'err' ? 'alert' : 'status'}">${esc(message)}${code ? `<span class="code">${esc(code)}</span>` : ''}</div>`;
 }
 
-async function apiCall(action, params = {}) {
+async function apiCall(action, params = {}, options = {}) {
   const result = await state.api.call({
     action,
     actor: state.user?.email || '',
     ...params,
-  });
+  }, options);
+  if (result?.code === 'ABORTED') {
+    const error = new Error('Cancelled.');
+    error.code = 'ABORTED';
+    throw error;
+  }
   if (!result || result.ok !== true) {
     const error = new Error((result && result.error) || 'Something went wrong.');
     error.code = result && result.code;
     throw error;
   }
   return result.data;
+}
+
+function isAbort(error) {
+  return error?.code === 'ABORTED';
+}
+
+function cloneData(value) {
+  return JSON.parse(JSON.stringify(value));
 }
 
 function rememberKit(id, name) {
@@ -112,11 +149,13 @@ function rememberPerson(email, name) {
 }
 
 function defaultFilters(user = state.user) {
+  const today = state.date || pacificDate();
+  const range = defaultHistoryRange(today);
   return {
     userEmail: '',
     kitId: '',
-    from: '',
-    to: '',
+    from: range.from,
+    to: range.to,
     mineOnly: !isAdminRole(user?.role),
   };
 }
@@ -164,11 +203,38 @@ async function loadConfig() {
   } catch {
     config._loadError = 'Could not read config.local.js.';
   }
-  const override = new URLSearchParams(window.location.search).get('backend');
+  const params = new URLSearchParams(window.location.search);
+  const override = params.get('backend');
   if (override === 'mock' || override === 'pa') config.backend = override;
   else config.backend = config.backend === 'pa' ? 'pa' : 'mock';
   config.FLOW_URL = String(config.FLOW_URL || '').trim();
+  const latency = Number(params.get('latency'));
+  config.latencyMs = Number.isFinite(latency) && latency > 0 ? latency : 0;
+  config.debug = params.get('debug') === '1';
   return config;
+}
+
+function isRefreshing() {
+  return (state.tab === 'checklist' && (state.loading.checklist || state.loading.tasks))
+    || (state.tab === 'history' && state.loading.history)
+    || (state.tab === 'settings' && state.loading.settings);
+}
+
+function refreshNote() {
+  const on = isRefreshing();
+  return `<p id="refresh-note" class="refreshing" role="status"${on ? '' : ' hidden'}>Refreshing…</p>`;
+}
+
+function syncModal() {
+  const existing = document.getElementById('backdrop');
+  if (state.modal && !existing) app.insertAdjacentHTML('beforeend', renderModal());
+  else if (!state.modal && existing) existing.remove();
+  if (state.modal) {
+    const dialog = document.getElementById('dialog');
+    if (dialog && !dialog.contains(document.activeElement)) {
+      document.getElementById('modal-cancel')?.focus();
+    }
+  }
 }
 
 function render() {
@@ -177,13 +243,37 @@ function render() {
     app.innerHTML = '<main class="login-screen" id="main"><p>Loading checklist…</p></main>';
     return;
   }
-  app.innerHTML = state.user ? renderShell() : renderLogin();
-  if (state.modal) {
-    const dialog = document.getElementById('dialog');
-    if (dialog && !dialog.contains(document.activeElement)) {
-      document.getElementById('modal-cancel')?.focus();
-    }
+  if (!state.user) {
+    app.innerHTML = renderLogin();
+    return;
   }
+  const shell = document.getElementById('shell');
+  const typing = document.activeElement?.closest?.('#history-form, #access-form, #kit-form');
+  if (shell && typing && state.tab === 'history' && document.getElementById('history-results')) {
+    const note = document.getElementById('refresh-note');
+    if (note) note.hidden = !isRefreshing();
+    document.getElementById('history-results').innerHTML = historyResultsHtml();
+    syncModal();
+    return;
+  }
+  if (shell && typing) {
+    syncModal();
+    return;
+  }
+  if (!shell) {
+    app.innerHTML = renderShell();
+    syncModal();
+    return;
+  }
+  const panel = document.getElementById('panel');
+  panel.innerHTML = `${refreshNote()}${state.tab === 'history' ? renderHistory() : state.tab === 'settings' ? renderSettings() : renderChecklist()}`;
+  panel.setAttribute('aria-labelledby', `tab-${state.tab}`);
+  document.querySelectorAll('#shell [data-action="tab"]').forEach((button) => {
+    const on = button.dataset.tab === state.tab;
+    button.setAttribute('aria-selected', String(on));
+    button.tabIndex = on ? 0 : -1;
+  });
+  syncModal();
 }
 
 function renderLogin() {
@@ -211,7 +301,7 @@ function renderLogin() {
             <label for="email">Centific ID</label>
             <input id="email" name="email" type="text" autocomplete="username" spellcheck="false" required placeholder="firstName.lastName@centific.com" value="${esc(state.loginEmail)}">
           </div>
-          <button class="primary" type="submit" ${state.busy ? 'disabled' : ''}>Sign in</button>
+          <button class="primary" type="submit" ${state.signingIn ? 'disabled' : ''}>Sign in</button>
         </form>
         <p class="hint mode-note">There is no password in this version. Access is the email list an admin keeps.</p>
         ${demos}
@@ -235,7 +325,7 @@ function renderShell() {
       ? renderSettings()
       : renderChecklist();
   return `
-    <div class="shell">
+    <div class="shell" id="shell">
       <header class="topbar">
         <div class="brand-lockup">
           <img class="logo-mark" src="assets/centific-logo.png" width="48" height="48" alt="Centific">
@@ -251,12 +341,12 @@ function renderShell() {
       </header>
       ${isAdmin() ? '<p class="admin-banner">Admin View</p>' : ''}
       <div class="tabs" role="tablist" aria-label="Sections">${tabButtons}</div>
-      <div role="tabpanel" id="panel-${state.tab}" aria-labelledby="tab-${state.tab}" tabindex="0">
+      <div role="tabpanel" id="panel" aria-labelledby="tab-${state.tab}" tabindex="0">
+        ${refreshNote()}
         ${panel}
       </div>
       <p class="footer-note">${state.api.mode === 'pa' ? 'Connected mode: changes are sent to the shared checklist service.' : 'Practice mode: sample data stays in this browser.'} Times are Pacific time (PT).</p>
-    </div>
-    ${state.modal ? renderModal() : ''}`;
+    </div>`;
 }
 
 function renderChecklist() {
@@ -325,6 +415,7 @@ function renderChecklist() {
 
 function renderEmptyKits() {
   if (state.kitsError) return '';
+  if (!state.kitsLoaded) return '<p class="refreshing" role="status">Refreshing…</p>';
   if (isAdmin()) {
     return `<p>No kits set up yet.</p><p><button type="button" class="primary" data-action="go-settings-kits">Add kits in Settings</button></p>`;
   }
@@ -362,7 +453,12 @@ function checkButtonState() {
   const kit = selectedKit();
   if (!kit) return { label: 'Check in', action: 'check-in', disabled: true, reason: 'Choose a kit.' };
   if (kit.claim && kit.claim.userEmail === state.user.email) {
-    return { label: 'Check out', action: 'check-out', disabled: false, reason: 'This kit is locked for other people until you check out.' };
+    return {
+      label: 'Check out',
+      action: 'check-out',
+      disabled: Boolean(kit.claim.pending || state.pendingCheckOut),
+      reason: kit.claim.pending ? 'Saving check-in…' : 'This kit is locked for other people until you check out.',
+    };
   }
   if (kit.claim) {
     return {
@@ -388,11 +484,14 @@ function checkButtonState() {
 function renderCheckButton() {
   if (!state.kits.length) return '';
   const button = checkButtonState();
-  const release = button.release ? `<button type="button" class="secondary" id="release-button" data-action="release">Release this kit</button>` : '';
+  const checkDisabled = button.disabled || (button.action === 'check-in' && state.pendingCheckIn);
+  const release = button.release
+    ? `<button type="button" class="secondary" id="release-button" data-action="release" ${state.pendingCheckOut ? 'disabled' : ''}>Release this kit</button>`
+    : '';
   return `
     <p id="kit-reason" class="hint">${esc(button.reason || '')}</p>
     <div class="quick">
-      <button type="button" class="primary" id="check-button" data-action="${button.action}" ${button.disabled || state.busy ? 'disabled' : ''}>${esc(button.label)}</button>
+      <button type="button" class="primary" id="check-button" data-action="${button.action}" ${checkDisabled ? 'disabled' : ''}>${esc(button.label)}</button>
       ${release}
     </div>`;
 }
@@ -407,11 +506,8 @@ function renderTasks() {
       : 'Check in to this kit to see the task list.';
     return `<section class="card" aria-labelledby="tasks-heading"><h2 id="tasks-heading">Tasks</h2><p>${esc(text)}</p></section>`;
   }
-  if (state.tasksError) {
-    return `<section class="card" aria-labelledby="tasks-heading"><h2 id="tasks-heading">Tasks</h2>${banner('err', state.tasksError, state.tasksCode)}</section>`;
-  }
   if (!state.tasks.length) {
-    return `<section class="card" aria-labelledby="tasks-heading"><h2 id="tasks-heading">Tasks</h2><p>No tasks are set up yet.</p></section>`;
+    return `<section class="card" aria-labelledby="tasks-heading"><div class="row-between"><h2 id="tasks-heading">Tasks</h2>${refreshTasksButton()}</div>${banner('err', state.tasksError, state.tasksCode)}<p>${state.loading.tasks ? 'Refreshing…' : 'No tasks are set up yet.'}</p></section>`;
   }
   const done = new Set(claim.completedTaskIds || []);
   const completed = state.tasks.filter((task) => done.has(task.id)).length;
@@ -419,7 +515,7 @@ function renderTasks() {
   const width = total ? Math.round((completed / total) * 100) : 0;
   const items = state.tasks.map((task) => `
     <li class="task ${done.has(task.id) ? 'done' : ''}">
-      <input class="task-check" id="task-${task.id}" data-task-id="${task.id}" type="checkbox" ${done.has(task.id) ? 'checked' : ''} ${state.busy ? 'disabled' : ''}>
+      <input class="task-check" id="task-${task.id}" data-task-id="${task.id}" type="checkbox" ${done.has(task.id) ? 'checked' : ''}>
       <label for="task-${task.id}">${esc(task.title)}</label>
     </li>
   `).join('');
@@ -427,11 +523,19 @@ function renderTasks() {
     <section class="card" aria-labelledby="tasks-heading">
       <div class="row-between">
         <h2 id="tasks-heading">Tasks</h2>
-        <p id="task-progress"><strong>${completed}/${total}</strong></p>
+        <div class="quick">
+          <p id="task-progress"><strong>${completed}/${total}</strong></p>
+          ${refreshTasksButton()}
+        </div>
       </div>
+      ${banner('err', state.tasksError, state.tasksCode)}
       <div class="bar" aria-hidden="true"><span style="width:${width}%"></span></div>
       <ul class="tasks">${items}</ul>
     </section>`;
+}
+
+function refreshTasksButton() {
+  return `<button type="button" class="secondary" data-action="refresh-tasks" ${state.loading.tasks ? 'disabled' : ''}>Refresh tasks</button>`;
 }
 
 function personLabel(name, email) {
@@ -473,9 +577,6 @@ function renderHistory() {
         ${tasks}
       </li>`;
   }).join('');
-  const empty = state.historyError
-    ? ''
-    : '<p>No check-ins for these filters.</p>';
   return `
     <section class="card" aria-labelledby="history-heading">
       <h2 id="history-heading">Kit log</h2>
@@ -512,10 +613,54 @@ function renderHistory() {
         <div class="actions">
           <button class="primary" type="submit">Show history</button>
           <button class="secondary" type="button" data-action="clear-filters">Clear</button>
+          <button class="secondary" type="button" data-action="load-older">Load older</button>
         </div>
       </form>
-      ${events.length ? `<ul class="history-list">${cards}</ul>` : empty}
+      <p class="hint">Showing ${esc(formatYmdLabel(state.filters.from))} through ${esc(formatYmdLabel(state.filters.to))}.</p>
+      <div id="history-results">${historyResultsHtml(cards)}</div>
     </section>`;
+}
+
+function historyResultsHtml(cards = null) {
+  const markup = cards == null
+    ? historyEvents(state.history).map(() => '').join('')
+    : cards;
+  if (cards == null) return historyCardsHtml();
+  if (!markup) {
+    if (state.historyError) return '';
+    if (!state.historyReady || state.loading.history) return '<p class="refreshing" role="status">Refreshing…</p>';
+    return '<p>No check-ins for these filters.</p>';
+  }
+  return `<ul class="history-list">${markup}</ul>`;
+}
+
+function historyCardsHtml() {
+  const events = historyEvents(state.history);
+  const cards = events.map((event) => {
+    const claimed = event.kind === 'claimed';
+    const badge = claimed
+      ? `<span class="badge claimed">${lockIcon()} Claimed</span>`
+      : '<span class="badge unclaimed">Unclaimed</span>';
+    const who = claimed
+      ? `Claimed by ${personLabel(event.name, event.email)}`
+      : `Unclaimed by ${personLabel(event.name, event.email)}`;
+    const when = event.at ? formatPtDateTime(event.at) : 'Time not recorded';
+    const tasks = claimed
+      ? ''
+      : `<p class="meta">Tasks completed ${esc(event.tasksCompleted)}/${esc(event.tasksTotal)}</p>`;
+    return `
+      <li class="history-card">
+        <div class="row-between">
+          <h3>${esc(event.kitName)}</h3>
+          ${badge}
+        </div>
+        <p class="who-line">${esc(who)}</p>
+        <p class="meta">Claim date ${esc(formatYmdLabel(event.claimDate))}</p>
+        <p class="meta">at ${esc(when)}</p>
+        ${tasks}
+      </li>`;
+  }).join('');
+  return historyResultsHtml(cards);
 }
 
 function renderSettings() {
@@ -547,7 +692,7 @@ function renderAccessEditor() {
           <h3>${esc(person.name)}</h3>
           <div class="quick">
             <button type="button" class="secondary" data-action="edit-access" data-id="${person.id}">Edit</button>
-            <button type="button" class="secondary" data-action="toggle-access" data-id="${person.id}" ${blocked ? 'disabled' : ''}>${person.active ? 'Deactivate' : 'Activate'}</button>
+            <button type="button" class="secondary" data-action="toggle-access" data-id="${person.id}" ${blocked || state.pendingToggle === `access:${person.id}` ? 'disabled' : ''}>${person.active ? 'Deactivate' : 'Activate'}</button>
           </div>
         </div>
         <p class="meta">${esc(person.email)}</p>
@@ -591,7 +736,7 @@ function renderAccessEditor() {
         <label for="person-active">Active</label>
       </div>
       <div class="quick">
-        <button class="primary" type="submit">Save person</button>
+        <button class="primary" type="submit" ${state.pendingSave === 'access' ? 'disabled' : ''}>Save person</button>
         <button class="secondary" type="button" data-action="cancel-editor">Cancel</button>
       </div>
     </form>` : '';
@@ -615,7 +760,7 @@ function renderKitEditor() {
         <h3>${esc(kit.name)}</h3>
         <div class="quick">
           <button type="button" class="secondary" data-action="edit-kit" data-id="${kit.id}">Edit</button>
-          <button type="button" class="secondary" data-action="toggle-kit" data-id="${kit.id}">${kit.active ? 'Deactivate' : 'Activate'}</button>
+          <button type="button" class="secondary" data-action="toggle-kit" data-id="${kit.id}" ${state.pendingToggle === `kit:${kit.id}` ? 'disabled' : ''}>${kit.active ? 'Deactivate' : 'Activate'}</button>
         </div>
       </div>
       <div class="chips">
@@ -645,7 +790,7 @@ function renderKitEditor() {
         <label for="kit-active">Active</label>
       </div>
       <div class="quick">
-        <button class="primary" type="submit">Save kit</button>
+        <button class="primary" type="submit" ${state.pendingSave === 'kit' ? 'disabled' : ''}>Save kit</button>
         <button class="secondary" type="button" data-action="cancel-editor">Cancel</button>
       </div>
     </form>` : '';
@@ -684,42 +829,57 @@ function clearPageError() {
 }
 
 async function signIn(email) {
+  if (state.signingIn) return;
   state.loginEmail = String(email || '').trim();
-  state.busy = true;
+  state.signingIn = true;
   state.notice = '';
   clearPageError();
   render();
   try {
     const user = await apiCall('login', { email: state.loginEmail });
-    await enterApp(user);
+    enterApp(user);
   } catch (error) {
-    state.busy = false;
+    state.signingIn = false;
     state.error = error.message;
     state.errorCode = error.code || '';
     render();
   }
 }
 
-async function enterApp(user) {
+function enterApp(user) {
   state.user = user;
-  state.busy = false;
+  state.signingIn = false;
   clearPageError();
   state.message = '';
   state.tab = 'checklist';
-  state.tasks = [];
-  state.tasksLoaded = false;
   state.tasksError = '';
   state.selectedKitId = null;
   state.editor = null;
   state.modal = null;
   state.people = new Map();
   state.historyHint = '';
+  state.history = [];
+  state.historyReady = false;
+  state.historyCache = new Map();
+  state.kitsByDate = new Map();
+  state.kits = [];
+  state.kitsLoaded = false;
   state.filters = defaultFilters(user);
   rememberPerson(user.email, user.name);
+  confirmedTaskIds = null;
+  taskFlush.cancel();
   try {
     sessionStorage.setItem(SESSION_KEY, JSON.stringify(user));
   } catch {
     /* session storage can be blocked; the page still works until refresh */
+  }
+  const cachedTasks = readTaskCache(sessionStorage);
+  if (cachedTasks?.fresh) {
+    state.tasks = cachedTasks.tasks.filter(isTaskVisible);
+    state.tasksLoaded = true;
+  } else {
+    state.tasks = [];
+    state.tasksLoaded = false;
   }
   const today = pacificDate();
   state.date = today;
@@ -727,105 +887,191 @@ async function enterApp(user) {
   state.viewYear = parts.year;
   state.viewMonth = parts.month;
   document.title = 'Daily Readiness Checklist';
-  await loadKits({ preferMine: true });
+  render();
+  const jobs = [refreshKits(state.date, { preferMine: true })];
+  if (!state.tasksLoaded) jobs.push(refreshTasks());
+  if (isAdmin()) {
+    jobs.push(refreshAccess());
+    jobs.push(refreshKitList());
+  }
+  Promise.all(jobs).catch(() => {});
 }
 
-async function loadKits({ preferMine = false } = {}) {
-  const serial = ++loadSerial;
+function applyKitSelection(preferMine) {
+  const mine = state.kits.find((kit) => kit.claim && kit.claim.userEmail === state.user?.email);
+  const stillThere = state.kits.some((kit) => kit.id === state.selectedKitId);
+  if (preferMine && mine) state.selectedKitId = mine.id;
+  else if (!stillThere) {
+    const free = state.kits.find((kit) => !kit.claim);
+    state.selectedKitId = mine?.id || free?.id || state.kits[0]?.id || null;
+  }
+}
+
+function storeKits(date, kits) {
+  state.kitsByDate.set(date, kits);
+  if (state.date === date) state.kits = kits;
+}
+
+async function refreshKits(date, { preferMine = false } = {}) {
+  const serial = ++kitsSerial;
+  const actor = state.user?.email;
+  const cached = state.kitsByDate.get(date);
+  if (cached && state.date === date) {
+    state.kits = cached;
+    state.kitsLoaded = true;
+    applyKitSelection(preferMine);
+  }
+  state.loading.checklist = true;
   state.kitsError = '';
   state.kitsCode = '';
+  if (state.tab === 'checklist') render();
   try {
-    const kits = await apiCall('getKits', { date: state.date });
-    if (serial !== loadSerial) return;
-    state.kits = kits;
+    const kits = await apiCall('getKits', { date }, { lane: 'kits' });
+    if (serial !== kitsSerial || state.user?.email !== actor || state.date !== date || state.kitHold > 0) return;
     kits.forEach((kit) => rememberKit(kit.id, kit.name));
-    await hydrateTaskIds();
-    await ensureTasks();
-    if (serial !== loadSerial) return;
-    const mine = state.kits.find((kit) => kit.claim && kit.claim.userEmail === state.user.email);
-    const stillThere = state.kits.some((kit) => kit.id === state.selectedKitId);
-    if (preferMine && mine) state.selectedKitId = mine.id;
-    else if (!stillThere) {
-      const free = state.kits.find((kit) => !kit.claim);
-      state.selectedKitId = mine?.id || free?.id || state.kits[0]?.id || null;
-    }
+    storeKits(date, kits);
+    state.kitsLoaded = true;
+    applyKitSelection(preferMine);
+    const missing = kits.some((kit) => kit.claim && kit.claim.userEmail === actor && !Array.isArray(kit.claim.completedTaskIds));
+    if (missing) hydrateTaskIds(date, serial);
   } catch (error) {
-    if (serial !== loadSerial) return;
-    state.kits = [];
+    if (isAbort(error) || serial !== kitsSerial || state.date !== date) return;
     state.kitsError = error.message;
     state.kitsCode = error.code || '';
+    if (!state.kitsByDate.has(date)) {
+      state.kits = [];
+      state.kitsLoaded = true;
+    }
   } finally {
-    if (serial === loadSerial) {
-      state.busy = false;
-      render();
+    if (serial === kitsSerial) {
+      state.loading.checklist = false;
+      if (state.tab === 'checklist' && state.user?.email === actor) render();
     }
   }
 }
 
-async function hydrateTaskIds() {
-  for (const kit of state.kits) {
-    const claim = kit.claim;
-    if (!claim || claim.userEmail !== state.user.email || Array.isArray(claim.completedTaskIds)) continue;
-    try {
-      const rows = await apiCall('getHistory', { from: state.date, to: state.date, kitId: kit.id });
+async function hydrateTaskIds(date, serial) {
+  try {
+    const rows = await apiCall('getHistory', { from: date, to: date }, { lane: `claim-tasks:${date}` });
+    if (serial !== kitsSerial || state.date !== date || state.kitHold > 0) return;
+    for (const kit of state.kits) {
+      const claim = kit.claim;
+      if (!claim || Array.isArray(claim.completedTaskIds)) continue;
       const row = rows.find((item) => item.id === claim.claimId);
       claim.completedTaskIds = row?.completedTaskIds || [];
-    } catch (error) {
-      claim.completedTaskIds = [];
-      state.tasksError = error.message;
-      state.tasksCode = error.code || '';
     }
-  }
-}
-
-async function ensureTasks() {
-  if (state.tasksLoaded) return;
-  try {
-    state.tasks = (await apiCall('getTasks')).filter(isTaskVisible);
-    state.tasksLoaded = true;
-    state.tasksError = '';
-    state.tasksCode = '';
+    if (state.tab === 'checklist') render();
   } catch (error) {
-    state.tasks = [];
-    state.tasksLoaded = false;
+    if (isAbort(error)) return;
     state.tasksError = error.message;
     state.tasksCode = error.code || '';
   }
 }
 
-async function setDate(ymd, { focusDay = false } = {}) {
+async function refreshTasks({ force = false } = {}) {
+  if (!force && state.tasksLoaded) return;
+  const serial = ++taskFetchSerial;
+  state.loading.tasks = true;
+  if (state.tab === 'checklist') render();
+  try {
+    const tasks = (await apiCall('getTasks', {}, { lane: 'tasks' })).filter(isTaskVisible);
+    if (serial !== taskFetchSerial) return;
+    state.tasks = tasks;
+    state.tasksLoaded = true;
+    state.tasksError = '';
+    state.tasksCode = '';
+    writeTaskCache(sessionStorage, tasks);
+  } catch (error) {
+    if (isAbort(error) || serial !== taskFetchSerial) return;
+    if (!state.tasksLoaded) state.tasks = [];
+    state.tasksError = error.message;
+    state.tasksCode = error.code || '';
+  } finally {
+    if (serial === taskFetchSerial) {
+      state.loading.tasks = false;
+      if (state.tab === 'checklist') render();
+    }
+  }
+}
+
+function setDate(ymd, { focusDay = false } = {}) {
   state.date = ymd;
   const parts = splitYmd(ymd);
   state.viewYear = parts.year;
   state.viewMonth = parts.month;
   state.message = '';
   clearPageError();
-  await loadKits({ preferMine: true });
+  const cached = state.kitsByDate.get(ymd);
+  if (cached) {
+    state.kits = cached;
+    state.kitsLoaded = true;
+    applyKitSelection(true);
+  } else {
+    state.kits = [];
+    state.kitsLoaded = false;
+    state.selectedKitId = null;
+  }
+  render();
   if (focusDay) document.getElementById(`day-${ymd}`)?.focus();
+  refreshKits(ymd, { preferMine: true });
 }
 
 async function checkIn() {
   const kit = selectedKit();
-  if (!kit) return;
-  state.busy = true;
+  if (!kit || kit.claim || state.pendingCheckIn) return;
+  const date = state.date;
+  const snapshot = cloneData(state.kits);
+  const checkInAt = new Date().toISOString();
+  kit.claim = {
+    claimId: null,
+    pending: true,
+    userEmail: state.user.email,
+    userName: state.user.name,
+    checkInAt,
+    status: 'Claimed',
+    completedTaskIds: [],
+  };
+  state.selectedKitId = kit.id;
+  state.message = formatClaimMessage(kit.name, date, checkInAt);
   clearPageError();
+  state.pendingCheckIn = true;
+  state.kitHold += 1;
+  state.historyCache.clear();
   render();
   try {
-    const data = await apiCall('checkIn', { kitId: kit.id, date: state.date });
+    const data = await apiCall('checkIn', { kitId: kit.id, date });
+    const current = state.kits.find((row) => row.id === kit.id);
+    if (current?.claim?.pending) {
+      current.claim = {
+        claimId: data.claimId,
+        userEmail: state.user.email,
+        userName: state.user.name,
+        checkInAt: data.checkInAt,
+        status: 'Claimed',
+        completedTaskIds: current.claim.completedTaskIds || [],
+      };
+    }
     state.message = formatClaimMessage(data.kitName, data.date, data.checkInAt);
     state.selectedKitId = data.kitId;
-    await loadKits({ preferMine: false });
+    storeKits(date, state.kits);
   } catch (error) {
-    state.busy = false;
-    state.error = error.message;
-    state.errorCode = error.code || '';
+    if (!isAbort(error)) {
+      storeKits(date, snapshot);
+      state.error = error.message;
+      state.errorCode = error.code || '';
+      state.message = '';
+    }
+  } finally {
+    state.pendingCheckIn = false;
+    state.kitHold = Math.max(0, state.kitHold - 1);
     render();
+    if (state.kitHold === 0 && state.date === date) refreshKits(date, { preferMine: false });
   }
 }
 
 function openCheckout(type) {
   const kit = selectedKit();
-  if (!kit?.claim) return;
+  if (!kit?.claim || kit.claim.pending) return;
   state.modal = {
     type,
     claimId: kit.claim.claimId,
@@ -845,13 +1091,33 @@ function closeModal() {
 
 async function confirmModal() {
   const modal = state.modal;
-  if (!modal) return;
-  const kit = selectedKit();
+  if (!modal || state.pendingCheckOut) return;
+  const kit = state.kits.find((row) => row.claim?.claimId === modal.claimId) || selectedKit();
+  if (!kit?.claim) {
+    state.modal = null;
+    render();
+    return;
+  }
+  const date = state.date;
+  const snapshot = cloneData(state.kits);
   const ids = modal.type === 'checkout'
     ? (myClaim(kit)?.completedTaskIds || modal.completedTaskIds || [])
     : (modal.completedTaskIds || []);
+  kit.claim = null;
+  kit.lastCheckedOut = {
+    claimId: modal.claimId,
+    userEmail: state.user.email,
+    userName: state.user.name,
+    checkOutAt: new Date().toISOString(),
+  };
   state.modal = null;
-  state.busy = true;
+  state.pendingCheckOut = true;
+  state.kitHold += 1;
+  state.message = modal.type === 'release'
+    ? `${modal.kitName} was released for this date.`
+    : `${modal.kitName} is checked out. The kit is free for this date.`;
+  clearPageError();
+  state.historyCache.clear();
   render();
   try {
     await apiCall('checkOut', {
@@ -859,131 +1125,216 @@ async function confirmModal() {
       completedTaskIds: ids,
       tasksTotal: state.tasks.length,
     });
-    state.message = modal.type === 'release'
-      ? `${modal.kitName} was released for this date.`
-      : `${modal.kitName} is checked out. The kit is free for this date.`;
-    clearPageError();
-    await loadKits({ preferMine: false });
+    storeKits(date, state.kits);
   } catch (error) {
-    state.busy = false;
-    state.error = error.message;
-    state.errorCode = error.code || '';
+    if (!isAbort(error)) {
+      storeKits(date, snapshot);
+      state.error = error.message;
+      state.errorCode = error.code || '';
+      state.message = '';
+    }
+  } finally {
+    state.pendingCheckOut = false;
+    state.kitHold = Math.max(0, state.kitHold - 1);
     render();
+    if (state.kitHold === 0 && state.date === date) refreshKits(date, { preferMine: false });
   }
 }
 
-async function toggleTask(taskId, checked) {
+function patchTaskView(taskId) {
+  const claim = myClaim();
+  const box = document.getElementById(`task-${taskId}`);
+  if (!box || !claim) return false;
+  const done = new Set(claim.completedTaskIds || []);
+  box.checked = done.has(taskId);
+  box.closest('.task')?.classList.toggle('done', done.has(taskId));
+  const completed = state.tasks.filter((task) => done.has(task.id)).length;
+  const total = state.tasks.length || 1;
+  const progress = document.getElementById('task-progress');
+  if (progress) progress.innerHTML = `<strong>${completed}/${state.tasks.length}</strong>`;
+  const bar = document.querySelector('#panel .bar span');
+  if (bar) bar.style.width = `${Math.round((completed / total) * 100)}%`;
+  return true;
+}
+
+function toggleTask(taskId, checked) {
   const claim = myClaim();
   if (!claim) return;
+  if (confirmedTaskIds == null) confirmedTaskIds = [...(claim.completedTaskIds || [])];
   const next = new Set(claim.completedTaskIds || []);
   if (checked) next.add(taskId);
   else next.delete(taskId);
-  state.busy = true;
+  claim.completedTaskIds = [...next];
+  state.tasksError = '';
+  state.tasksCode = '';
+  if (!patchTaskView(taskId)) render();
+  taskFlush.schedule();
+}
+
+async function flushTasks() {
+  const claim = myClaim();
+  if (!claim) return;
+  if (claim.pending || !claim.claimId) {
+    taskFlush.schedule();
+    return;
+  }
+  const serial = ++taskSeq;
+  const ids = [...(claim.completedTaskIds || [])];
+  const rollback = confirmedTaskIds ? [...confirmedTaskIds] : ids;
   try {
     const saved = await apiCall('updateTasks', {
       claimId: claim.claimId,
-      completedTaskIds: [...next],
-    });
+      completedTaskIds: ids,
+    }, { lane: `tasks-save:${claim.claimId}` });
+    if (serial !== taskSeq) return;
     claim.completedTaskIds = saved.completedTaskIds;
+    confirmedTaskIds = [...saved.completedTaskIds];
     state.tasksError = '';
     state.tasksCode = '';
   } catch (error) {
+    if (isAbort(error) || serial !== taskSeq) return;
+    claim.completedTaskIds = rollback;
+    confirmedTaskIds = [...rollback];
     state.tasksError = error.message;
     state.tasksCode = error.code || '';
-  } finally {
-    state.busy = false;
     render();
-    document.getElementById(`task-${taskId}`)?.focus();
   }
 }
 
 function historyFiltersFromForm(form) {
   const data = new FormData(form);
   const mineOnly = Boolean(form.querySelector('#filter-mine')?.checked);
+  const today = pacificDate();
+  const range = defaultHistoryRange(today);
   return {
     userEmail: mineOnly ? '' : String(data.get('userEmail') || ''),
     kitId: String(data.get('kitId') || ''),
-    from: String(data.get('from') || ''),
-    to: String(data.get('to') || ''),
+    from: String(data.get('from') || '') || range.from,
+    to: String(data.get('to') || '') || range.to,
     mineOnly,
   };
 }
 
-function rowMatchesFilters(row) {
-  const mine = state.filters.mineOnly;
-  const email = (mine ? state.user?.email : state.filters.userEmail) || '';
-  if (email) {
-    const wanted = String(email).trim().toLowerCase();
-    if (!rowEmails(row).includes(wanted)) return false;
-  }
-  if (state.filters.kitId && String(row.kitId) !== String(state.filters.kitId)) return false;
-  if (state.filters.from && String(row.claimDate || '') < state.filters.from) return false;
-  if (state.filters.to && String(row.claimDate || '') > state.filters.to) return false;
+function historyKey() {
+  const mine = Boolean(state.filters.mineOnly);
+  return JSON.stringify({
+    userEmail: mine ? state.user?.email || '' : state.filters.userEmail || '',
+    kitId: state.filters.kitId || '',
+    from: state.filters.from || '',
+    to: state.filters.to || '',
+    mineOnly: mine,
+  });
+}
+
+function historyParams() {
+  const params = { from: state.filters.from, to: state.filters.to };
+  const mine = Boolean(state.filters.mineOnly);
+  if (mine && state.user?.email) params.userEmail = state.user.email;
+  else if (state.filters.userEmail) params.userEmail = state.filters.userEmail;
+  if (state.filters.kitId) params.kitId = Number(state.filters.kitId);
+  return params;
+}
+
+function showCachedHistory() {
+  const cached = state.historyCache.get(historyKey());
+  if (!cached) return false;
+  state.history = cached.rows;
+  state.historyHint = cached.hint || '';
+  state.historyReady = true;
+  cached.rows.forEach((row) => {
+    rememberKit(row.kitId, row.kitName);
+    rememberPerson(row.userEmail, row.userName);
+    rememberPerson(row.checkedOutByEmail || row.CheckedOutByEmail, row.checkedOutByName || row.CheckedOutByName);
+  });
   return true;
 }
 
-async function loadHistory() {
+async function refreshHistory() {
+  const serial = ++historySerial;
+  const key = historyKey();
+  const actor = state.user?.email;
+  showCachedHistory();
+  state.loading.history = true;
   state.historyError = '';
   state.historyCode = '';
-  state.historyHint = '';
+  if (state.tab === 'history') render();
   try {
-    try {
-      const access = await apiCall('listAccess');
-      state.access = access;
-      access.forEach((person) => rememberPerson(person.email, person.name));
-    } catch {
-      /* Regular users cannot open the access list. Names still come from the kit log. */
-    }
-    const params = {};
-    const mine = Boolean(state.filters.mineOnly);
-    if (mine && state.user?.email) params.userEmail = state.user.email;
-    else if (state.filters.userEmail) params.userEmail = state.filters.userEmail;
-    if (state.filters.kitId) params.kitId = Number(state.filters.kitId);
-    if (state.filters.from) params.from = state.filters.from;
-    if (state.filters.to) params.to = state.filters.to;
-    const rows = await apiCall('getHistory', params);
+    const rows = await apiCall('getHistory', historyParams(), { lane: 'history' });
+    if (serial !== historySerial || state.user?.email !== actor) return;
     rows.forEach((row) => {
       rememberKit(row.kitId, row.kitName);
       rememberPerson(row.userEmail, row.userName);
       rememberPerson(row.checkedOutByEmail || row.CheckedOutByEmail, row.checkedOutByName || row.CheckedOutByName);
     });
     state.kits.forEach((kit) => rememberKit(kit.id, kit.name));
+    const mine = Boolean(state.filters.mineOnly);
     const asked = String(state.filters.userEmail || '').trim().toLowerCase();
-    const self = String(state.user?.email || '').trim().toLowerCase();
-    if (!mine && asked && asked !== self) {
-      const matched = rows.some((row) => rowEmails(row).includes(asked));
-      if (!matched) {
-        state.historyHint = 'No rows matched that person. If you expected their check-ins, the shared checklist may still be limited to your own.';
-      }
+    const self = String(actor || '').trim().toLowerCase();
+    let hint = '';
+    if (!mine && asked && asked !== self && !rows.some((row) => rowEmails(row).includes(asked))) {
+      hint = 'No rows matched that person. If you expected their check-ins, the shared checklist may still be limited to your own.';
     }
-    state.history = rows.filter(rowMatchesFilters);
+    const visible = rows.filter(rowMatchesFilters);
+    state.historyCache.set(key, { rows: visible, hint });
+    if (historyKey() === key) {
+      state.history = visible;
+      state.historyHint = hint;
+      state.historyReady = true;
+    }
   } catch (error) {
-    state.history = [];
+    if (isAbort(error) || serial !== historySerial) return;
+    if (!state.historyCache.has(key)) {
+      state.history = [];
+      state.historyReady = true;
+    }
     state.historyError = error.message;
     state.historyCode = error.code || '';
+  } finally {
+    if (serial === historySerial) {
+      state.loading.history = false;
+      if (state.tab === 'history' && state.user?.email === actor) render();
+    }
   }
-  render();
 }
 
-async function loadSettings() {
+async function refreshAccess() {
+  try {
+    const access = await apiCall('listAccess', {}, { lane: 'access' });
+    state.access = access;
+    access.forEach((person) => rememberPerson(person.email, person.name));
+    return access;
+  } catch (error) {
+    if (isAbort(error)) return null;
+    throw error;
+  }
+}
+
+async function refreshKitList() {
+  const kits = await apiCall('listKits', {}, { lane: 'kit-list' });
+  state.allKits = kits;
+  kits.forEach((kit) => rememberKit(kit.id, kit.name));
+  return kits;
+}
+
+async function refreshSettings() {
+  const serial = ++settingsSerial;
+  const actor = state.user?.email;
+  state.loading.settings = true;
   state.settingsError = '';
   state.settingsCode = '';
+  if (state.tab === 'settings') render();
   const problems = [];
-  try {
-    state.access = await apiCall('listAccess');
-  } catch (error) {
-    problems.push(error);
-  }
-  try {
-    state.allKits = await apiCall('listKits');
-    state.allKits.forEach((kit) => rememberKit(kit.id, kit.name));
-  } catch (error) {
-    problems.push(error);
-  }
+  const [accessResult, kitResult] = await Promise.all([
+    refreshAccess().catch((error) => { problems.push(error); return null; }),
+    refreshKitList().catch((error) => { problems.push(error); return null; }),
+  ]);
+  if (serial !== settingsSerial || state.user?.email !== actor) return;
   if (problems.length) {
     state.settingsError = problems.map((error) => error.message).join(' ');
     state.settingsCode = problems[0].code || '';
   }
+  if (accessResult) state.access = accessResult;
+  if (kitResult) state.allKits = kitResult;
   const openKitForm = state.openKitForm;
   if (openKitForm) {
     state.openKitForm = false;
@@ -996,33 +1347,44 @@ async function loadSettings() {
       active: true,
     };
   }
-  render();
+  state.loading.settings = false;
+  if (state.tab === 'settings') render();
   if (openKitForm) {
     document.getElementById('kits-heading')?.scrollIntoView({ block: 'start' });
     document.getElementById('kit-name')?.focus();
   }
 }
 
-async function setTab(tab, { focus = false } = {}) {
+function setTab(tab, { focus = false } = {}) {
   if (tab === 'settings' && !isAdmin()) tab = 'checklist';
   state.tab = tab;
   clearPageError();
-  if (tab === 'history') await loadHistory();
-  else if (tab === 'settings') await loadSettings();
-  else await loadKits({ preferMine: false });
+  if (tab === 'history') showCachedHistory();
+  render();
   if (focus) document.getElementById(`tab-${tab}`)?.focus();
+  if (tab === 'history') refreshHistory();
+  else if (tab === 'settings') refreshSettings();
+  else refreshKits(state.date, { preferMine: false });
 }
 
 function signOut() {
+  taskFlush.cancel();
+  kitsSerial += 1;
+  historySerial += 1;
+  settingsSerial += 1;
+  taskSeq += 1;
+  taskFetchSerial += 1;
   try { sessionStorage.removeItem(SESSION_KEY); } catch { /* ignore */ }
   state.user = null;
   state.tab = 'checklist';
   state.kits = [];
-  state.tasks = [];
-  state.tasksLoaded = false;
+  state.kitsLoaded = false;
+  state.kitsByDate = new Map();
   state.selectedKitId = null;
   state.message = '';
   state.history = [];
+  state.historyReady = false;
+  state.historyCache = new Map();
   state.historyHint = '';
   state.filters = defaultFilters(null);
   state.people = new Map();
@@ -1030,6 +1392,13 @@ function signOut() {
   state.allKits = [];
   state.editor = null;
   state.modal = null;
+  state.signingIn = false;
+  state.pendingCheckIn = false;
+  state.pendingCheckOut = false;
+  state.pendingSave = '';
+  state.pendingToggle = '';
+  state.kitHold = 0;
+  state.loading = { checklist: false, history: false, settings: false, tasks: false };
   state.notice = 'You are signed out.';
   clearPageError();
   document.title = 'Sign in · Daily Readiness Checklist';
@@ -1038,19 +1407,25 @@ function signOut() {
 
 function resetDemo() {
   state.api.reset();
+  try { sessionStorage.removeItem(TASKS_CACHE_KEY); } catch { /* ignore */ }
   state.notice = 'Sample data was reset in this browser.';
   state.settingsNotice = state.notice;
   state.kits = [];
+  state.kitsLoaded = false;
+  state.kitsByDate = new Map();
   state.tasksLoaded = false;
+  state.tasks = [];
   state.history = [];
+  state.historyReady = false;
+  state.historyCache = new Map();
   state.access = [];
   state.allKits = [];
   state.editor = null;
   if (state.user) {
-    state.tasksLoaded = false;
-    if (state.tab === 'settings') loadSettings();
-    else if (state.tab === 'history') loadHistory();
-    else loadKits({ preferMine: true });
+    if (state.tab === 'settings') refreshSettings();
+    else if (state.tab === 'history') refreshHistory();
+    else refreshKits(state.date, { preferMine: true });
+    refreshTasks({ force: true });
     return;
   }
   render();
@@ -1079,16 +1454,34 @@ async function saveAccess(form) {
     render();
     return;
   }
+  const previous = cloneData(state.access);
+  const email = payload.email.toLowerCase();
+  if (payload.id) {
+    const row = state.access.find((person) => person.id === payload.id);
+    if (row) Object.assign(row, payload, { email });
+  } else {
+    state.access.push({ ...payload, id: `new-${Date.now()}`, email });
+  }
+  state.editor = null;
   state.settingsError = '';
-  state.settingsNotice = '';
+  state.settingsNotice = 'Access list saved.';
+  state.pendingSave = 'access';
+  render();
   try {
-    await apiCall('upsertAccess', payload);
-    state.access = await apiCall('listAccess');
-    state.editor = null;
-    state.settingsNotice = 'Access list saved.';
+    const saved = await apiCall('upsertAccess', payload);
+    const temp = state.access.find((person) => String(person.id).startsWith('new-') || person.email === saved.email);
+    if (temp && saved) Object.assign(temp, saved);
+    state.pendingSave = '';
+    refreshAccess().catch(() => {});
   } catch (error) {
-    state.settingsError = error.message;
-    state.settingsCode = error.code || '';
+    if (!isAbort(error)) {
+      state.access = previous;
+      state.settingsError = error.message;
+      state.settingsCode = error.code || '';
+      state.settingsNotice = '';
+      state.editor = { kind: 'access', ...payload, id: payload.id ?? null };
+    }
+    state.pendingSave = '';
   }
   render();
 }
@@ -1102,25 +1495,48 @@ async function saveKit(form) {
     notes: String(data.get('notes') || ''),
     active: data.get('active') === 'on',
   };
-  state.editor = { kind: 'kit', ...payload, id: payload.id ?? null, sortOrder: payload.sortOrder ?? '' };
+  const previous = cloneData(state.allKits);
+  if (payload.id) {
+    const row = state.allKits.find((kit) => kit.id === payload.id);
+    if (row) Object.assign(row, payload);
+  } else {
+    state.allKits.push({ ...payload, id: `new-${Date.now()}`, sortOrder: payload.sortOrder ?? state.allKits.length + 1 });
+  }
+  state.editor = null;
   state.settingsError = '';
-  state.settingsNotice = '';
+  state.settingsNotice = 'Kit list saved.';
+  state.pendingSave = 'kit';
+  state.kitsByDate.clear();
+  render();
   try {
-    await apiCall('upsertKit', payload);
-    state.allKits = await apiCall('listKits');
-    state.editor = null;
-    state.settingsNotice = 'Kit list saved.';
-    state.tasksLoaded = state.tasksLoaded;
+    const saved = await apiCall('upsertKit', payload);
+    const temp = state.allKits.find((kit) => String(kit.id).startsWith('new-') || kit.id === saved?.id);
+    if (temp && saved) Object.assign(temp, saved);
+    state.pendingSave = '';
+    refreshKitList().catch(() => {});
+    refreshKits(state.date, { preferMine: false });
   } catch (error) {
-    state.settingsError = error.message;
-    state.settingsCode = error.code || '';
+    if (!isAbort(error)) {
+      state.allKits = previous;
+      state.settingsError = error.message;
+      state.settingsCode = error.code || '';
+      state.settingsNotice = '';
+      state.editor = { kind: 'kit', ...payload, id: payload.id ?? null, sortOrder: payload.sortOrder ?? '' };
+    }
+    state.pendingSave = '';
   }
   render();
 }
 
 async function toggleAccess(id) {
   const person = state.access.find((row) => row.id === id);
-  if (!person) return;
+  if (!person || state.pendingToggle) return;
+  const previous = person.active;
+  person.active = !previous;
+  state.pendingToggle = `access:${id}`;
+  state.settingsNotice = previous ? `${person.name} can no longer sign in.` : `${person.name} can sign in again.`;
+  state.settingsError = '';
+  render();
   try {
     await apiCall('upsertAccess', {
       id: person.id,
@@ -1129,37 +1545,51 @@ async function toggleAccess(id) {
       firstName: person.firstName,
       lastName: person.lastName,
       role: person.role,
-      active: !person.active,
+      active: person.active,
     });
-    state.access = await apiCall('listAccess');
-    state.settingsNotice = person.active ? `${person.name} can no longer sign in.` : `${person.name} can sign in again.`;
-    state.settingsError = '';
   } catch (error) {
-    state.settingsError = error.message;
-    state.settingsCode = error.code || '';
+    if (!isAbort(error)) {
+      person.active = previous;
+      state.settingsError = error.message;
+      state.settingsCode = error.code || '';
+      state.settingsNotice = '';
+    }
+  } finally {
+    state.pendingToggle = '';
+    render();
   }
-  render();
 }
 
 async function toggleKit(id) {
   const kit = state.allKits.find((row) => row.id === id);
-  if (!kit) return;
+  if (!kit || state.pendingToggle) return;
+  const previous = kit.active;
+  kit.active = !previous;
+  state.pendingToggle = `kit:${id}`;
+  state.settingsNotice = previous ? `${kit.name} is hidden from the kit list.` : `${kit.name} is available again.`;
+  state.settingsError = '';
+  state.kitsByDate.clear();
+  render();
   try {
     await apiCall('upsertKit', {
       id: kit.id,
       name: kit.name,
       sortOrder: kit.sortOrder,
       notes: kit.notes || '',
-      active: !kit.active,
+      active: kit.active,
     });
-    state.allKits = await apiCall('listKits');
-    state.settingsNotice = kit.active ? `${kit.name} is hidden from the kit list.` : `${kit.name} is available again.`;
-    state.settingsError = '';
+    refreshKits(state.date, { preferMine: false });
   } catch (error) {
-    state.settingsError = error.message;
-    state.settingsCode = error.code || '';
+    if (!isAbort(error)) {
+      kit.active = previous;
+      state.settingsError = error.message;
+      state.settingsCode = error.code || '';
+      state.settingsNotice = '';
+    }
+  } finally {
+    state.pendingToggle = '';
+    render();
   }
-  render();
 }
 
 function onClick(event) {
@@ -1170,7 +1600,6 @@ function onClick(event) {
   const button = event.target.closest('[data-action]');
   if (!button) return;
   const action = button.dataset.action;
-  if (state.busy && !['modal-cancel', 'sign-out'].includes(action)) return;
   if (action === 'demo') signIn(button.dataset.email);
   else if (action === 'reset-demo') resetDemo();
   else if (action === 'sign-out') signOut();
@@ -1202,7 +1631,12 @@ function onClick(event) {
   else if (action === 'modal-confirm') confirmModal();
   else if (action === 'clear-filters') {
     state.filters = defaultFilters();
-    loadHistory();
+    refreshHistory();
+  } else if (action === 'load-older') {
+    state.filters.from = addDays(state.filters.from || pacificDate(), -14);
+    refreshHistory();
+  } else if (action === 'refresh-tasks') {
+    refreshTasks({ force: true });
   } else if (action === 'add-access') {
     state.editor = { kind: 'access', id: null, name: '', email: '', firstName: '', lastName: '', role: 'User', active: true };
     state.settingsNotice = '';
@@ -1243,7 +1677,7 @@ function onSubmit(event) {
     signIn(new FormData(form).get('email'));
   } else if (formId === 'history-form') {
     state.filters = historyFiltersFromForm(form);
-    loadHistory();
+    refreshHistory();
   } else if (formId === 'access-form') {
     saveAccess(form);
   } else if (formId === 'kit-form') {
@@ -1264,7 +1698,7 @@ function onChange(event) {
     const form = document.getElementById('history-form');
     if (!form) return;
     state.filters = historyFiltersFromForm(form);
-    loadHistory();
+    refreshHistory();
   }
 }
 
@@ -1322,6 +1756,8 @@ async function init() {
     backend: state.config.backend,
     flowUrl: state.config.FLOW_URL,
     storage: window.localStorage,
+    latencyMs: state.config.latencyMs,
+    debug: state.config.debug,
   });
   document.title = 'Sign in · Daily Readiness Checklist';
   let saved = null;
@@ -1331,16 +1767,20 @@ async function init() {
     saved = null;
   }
   state.ready = true;
-  if (saved?.email) {
-    try {
-      const user = await apiCall('login', { email: saved.email });
-      await enterApp(user);
-      return;
-    } catch (error) {
-      try { sessionStorage.removeItem(SESSION_KEY); } catch { /* ignore */ }
+  if (saved?.email && saved?.name) {
+    enterApp(saved);
+    apiCall('login', { email: saved.email }).then((user) => {
+      if (state.user?.email !== user.email) return;
+      state.user = user;
+      try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(user)); } catch { /* ignore */ }
+    }).catch((error) => {
+      if (state.user?.email !== saved.email) return;
+      signOut();
       state.error = error.message;
       state.errorCode = error.code || '';
-    }
+      render();
+    });
+    return;
   }
   render();
 }

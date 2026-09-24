@@ -3,7 +3,7 @@
 export function createPaBackend(flowUrl) {
   const url = String(flowUrl || '').trim();
   return {
-    async call(body) {
+    async call(body, options = {}) {
       if (!url) {
         return {
           ok: false,
@@ -17,8 +17,12 @@ export function createPaBackend(flowUrl) {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
+          signal: options.signal,
         });
-      } catch {
+      } catch (error) {
+        if (error?.name === 'AbortError') {
+          return { ok: false, error: 'Cancelled.', code: 'ABORTED' };
+        }
         return {
           ok: false,
           error: 'Could not reach the checklist service. Check the flow URL and your connection.',

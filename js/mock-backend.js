@@ -486,7 +486,25 @@ function dispatch(db, write, body) {
   }
 }
 
-export function createMockBackend(storage) {
+function wait(ms, signal) {
+  if (!ms) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      const error = new Error('aborted');
+      error.name = 'AbortError';
+      reject(error);
+    };
+    if (signal?.aborted) onAbort();
+    else signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+export function createMockBackend(storage, { latencyMs = 0 } = {}) {
   const store = storage || memoryStorage();
 
   function read() {
@@ -512,11 +530,15 @@ export function createMockBackend(storage) {
   }
 
   return {
-    call(body) {
+    async call(body, options = {}) {
       try {
-        return Promise.resolve(dispatch(read(), write, body || {}));
+        await wait(latencyMs, options.signal);
+        return dispatch(read(), write, body || {});
       } catch (error) {
-        return Promise.resolve(fail(error.message || 'Unexpected error', 'INVALID'));
+        if (error?.name === 'AbortError') {
+          return { ok: false, error: 'Cancelled.', code: 'ABORTED' };
+        }
+        return fail(error.message || 'Unexpected error', 'INVALID');
       }
     },
     reset() {

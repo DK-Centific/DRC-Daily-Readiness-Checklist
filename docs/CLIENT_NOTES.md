@@ -85,7 +85,7 @@ Errors: `KIT_CLAIMED` (someone already holds that kit that day), `ALREADY_HAVE_C
 
 `checkedOutByEmail` and `checkedOutByName` are blank until check-out. After check-out they are the person who released the kit. Older rows may omit them; the page then shows the claimant as the person who unclaimed. `CheckedOutByEmail` / `CheckedOutByName` are accepted too.
 
-Every signed-in person can read the kit log for all users. `userEmail` keeps rows where that person claimed the kit or released it. `from` and `to` are inclusive `YYYY-MM-DD` claim dates. `kitId` is optional. The History tab sends `userEmail` of the signed-in person when **Mine only** is on (on by default for a regular user, off for an admin). If a live flow still returns only that person’s own rows, the page shows what came back and, when they asked for someone else and nothing matched, a short note that the log may still be limited to them.
+Every signed-in person can read the kit log for all users. `userEmail` keeps rows where that person claimed the kit or released it. `from` and `to` are inclusive `YYYY-MM-DD` claim dates. `kitId` is optional. The History tab always sends `from` and `to`. It starts with the last 14 days so the flow does not return the whole log. **Load older** moves `from` back 14 days. The page sends `userEmail` of the signed-in person when **Mine only** is on (on by default for a regular user, off for an admin). If a live flow still returns only that person’s own rows, the page shows what came back and, when they asked for someone else and nothing matched, a short note that the log may still be limited to them.
 
 `listAccess` data: `[{ id, name, email, firstName, lastName, role, active }]` including inactive people.
 
