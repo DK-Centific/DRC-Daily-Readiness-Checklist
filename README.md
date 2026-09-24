@@ -31,14 +31,14 @@ You can also type an email and click **Sign in**. An email that is not on the li
 
 ### What to click through
 
-1. Sign in as Jane Doe. Her first and last name are filled in.
-2. Pick a kit and click **Check in**. You should see a line like “Kit 01 claimed on Sep 24, 2026 at 8:06 AM PT”. The kit shows a lock.
-3. Check a task, such as **Check hardware status**.
-4. Click **Sign out**, then sign in as Brian Leong. Kit 01 stays locked and Brian cannot check it in for that same day. He can check in a different kit, or the same kit on another day.
-5. Sign back in as Jane. The task you checked is still checked. Click **Check out**, then **Confirm** on “Please ensure you have completed the task.”
-6. Open **History**. You see a **Claimed** line (amber, with a lock) and, after check-out, an **Unclaimed** line (green). Each line names the person and their email, and shows the Pacific time. An unclaimed line also shows tasks like `1/4`. **Mine only** is already on, so you see your own lines.
-7. Turn **Mine only** off and click **Show history**. You can see other people’s kit lines. Use Person, Kit, and the dates to narrow the list.
-8. Sign in as Brian (or Annie, or admin-drc). The page shows **Admin View** and a **Settings** tab. Add a person (name, email, Admin or User, active). On History, **Mine only** starts off, so the log shows everyone. If Brian releases Jane’s kit, History shows **Claimed by Jane** and **Unclaimed by Brian**.
+1. Sign in as Jane Doe. The checklist opens on today.
+2. Click a kit tile, then **Check in to Kit 01** (or whichever kit you picked). A bar shows that kit is yours, with how many tasks are done.
+3. Check a task, such as **Battery charging: Walkie-talkies (Two per kit)**. A finished group closes on its own.
+4. Click **Sign out**, then sign in as Brian Leong. Jane’s kit stays locked and shows her name. Brian cannot check that kit in for the same day.
+5. Sign back in as Jane. The task you checked is still checked. Click **Check out**. The box says “Please ensure you have completed the task.” Click **Check out anyway** if some tasks are still open, or **Check out** if they are all done.
+6. Open **History**. You see one line that Jane claimed the kit and, after check-out, one line that she unclaimed it. Each line has her name, email, and Pacific time, plus a count like `1/18`. **Mine** is already on.
+7. Click **Mine** to turn it off. Use **Today**, **7 days**, or **All**, and the kit list, to narrow the log. **All** starts with the last 14 days. **Load older** goes back further.
+8. Sign in as Brian (or Annie, or admin-drc). The page shows **Admin View** and a **Settings** tab. Under **People**, a regular person is labeled **Staff**. The saved role is still User. On History, **Mine** starts off. If Brian releases Jane’s kit, History shows Jane claimed it and Brian unclaimed it.
 
 **Reset sample data** on the sign-in page (or in Settings) puts the sample people, kits, and tasks back. Your sign-in lasts until you click **Sign out** or close the tab.
 
@@ -91,7 +91,7 @@ That runs the checks in `tests/`. They cover: one open claim per kit per date, d
 - A person can hold one open kit per date. After check-out, that kit can be claimed again the same day (a new log row).
 - Claim dates are Pacific calendar dates. The old prototype’s `toISOString()` date bug is not used.
 - The service should count completed tasks itself. Practice mode ignores a fake total sent by the browser.
-- History is an event log, newest first. A claim is a Claimed line. A check-out is a separate Unclaimed line with tasks completed. Open claims have no Unclaimed line yet.
+- History is an event log, newest first. A claim line says who claimed the kit. A check-out is a separate line that says who unclaimed it, with tasks completed. Open claims have no unclaimed line yet. The screen says Staff for a regular person; the saved role is still User.
 - **Mine only** starts on for a regular user and off for an admin. Anyone signed in can turn it off and filter by person, kit, and date.
 - An admin can release someone else’s kit from the checklist. History then shows the admin as the person who unclaimed it. Older rows with no checkout person show the claimant instead. The owner’s check-out dialog uses the exact sentence “Please ensure you have completed the task.”
 - New emails must end in `@centific.com`, except the shared `admin-drc` id.

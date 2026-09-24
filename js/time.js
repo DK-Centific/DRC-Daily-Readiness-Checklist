@@ -51,6 +51,28 @@ export function formatLongDate(ymd) {
   }).format(dateAnchor(ymd));
 }
 
+export function formatChipDate(ymd, today) {
+  const label = new Intl.DateTimeFormat('en-US', {
+    timeZone: ZONE,
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  }).format(dateAnchor(ymd));
+  if (ymd === today) return `Today · ${label}`;
+  if (today && ymd === addDays(today, -1)) return `Yesterday · ${label}`;
+  return label;
+}
+
+export function formatHistoryDay(ymd) {
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: ZONE,
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(dateAnchor(ymd));
+}
+
 export function formatMonthYear(year, month) {
   return new Intl.DateTimeFormat('en-US', {
     timeZone: ZONE,

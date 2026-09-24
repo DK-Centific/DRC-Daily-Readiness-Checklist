@@ -3,7 +3,7 @@
  * Same actions, error codes, and business rules as docs/DRC_SPEC_AND_API_CONTRACT.md.
  */
 
-import { isAdminRole, isTaskVisible, roleLabel } from './flow-shape.js';
+import { isAdminRole, isTaskVisible } from './flow-shape.js';
 
 const STORAGE_KEY = 'drc.mock.v1';
 
@@ -68,7 +68,7 @@ function asId(value) {
 function seed() {
   const addedAt = '2026-01-01T00:00:00.000Z';
   return {
-    nextId: { access: 5, kit: 5, task: 6, log: 1 },
+    nextId: { access: 5, kit: 5, task: 20, log: 1 },
     access: [
       { id: 1, name: 'Brian Leong', email: 'brian.leong@centific.com', firstName: 'Brian', lastName: 'Leong', role: 'Admin', active: true, addedBy: 'seed', addedAt },
       { id: 2, name: 'Annie Tran', email: 'thaingan.tran@centific.com', firstName: 'Annie', lastName: 'Tran', role: 'Admin', active: true, addedBy: 'seed', addedAt },
@@ -82,11 +82,25 @@ function seed() {
       { id: 4, name: 'Kit 04', active: true, sortOrder: 4, notes: '' },
     ],
     tasks: [
-      { id: 1, title: 'Check hardware status', order: 1, active: true },
-      { id: 2, title: 'Verify network connection', order: 2, active: true },
-      { id: 3, title: 'Confirm kit contents', order: 3, active: true },
-      { id: 4, title: 'Record start conditions', order: 4, active: true },
-      { id: 5, title: 'Retired step', order: 0, active: false },
+      { id: 1, title: 'Inspect camera bodies for damage, debris, or loose parts.', order: 1, active: true },
+      { id: 2, title: 'Clean camera lenses with a microfiber cloth.', order: 2, active: true },
+      { id: 3, title: 'Check camera mounts and connectors.', order: 3, active: true },
+      { id: 4, title: 'Verify image quality and Live View before packing.', order: 4, active: true },
+      { id: 5, title: 'Confirm each camera is mounted securely.', order: 5, active: true },
+      { id: 6, title: 'Battery charging: Walkie-talkies (Two per kit)', order: 6, active: true },
+      { id: 7, title: 'Battery charging: LED Headlamps (Two per kit)', order: 7, active: true },
+      { id: 8, title: 'Battery charging: Handheld Flashlights (Two per kit)', order: 8, active: true },
+      { id: 9, title: 'Battery charging: Power Banks (Two per kit)', order: 9, active: true },
+      { id: 10, title: 'Battery charging: Visually inspect rechargeable devices for damage, corrosion, or swelling.', order: 10, active: true },
+      { id: 11, title: 'Inspect all cables for cuts, kinks, fraying, or damaged connectors. Validate functionality for any such cables.', order: 11, active: true },
+      { id: 12, title: 'All tripods and poles are in working condition.', order: 12, active: true },
+      { id: 13, title: 'All power cables tested for functionality with their devices.', order: 13, active: true },
+      { id: 14, title: 'eero wireless systems and kit Ethernet cables tested for functionality. Connect a laptop to the eero and run a speed test to verify performance.', order: 14, active: true },
+      { id: 15, title: 'Carefully check and clean the calibration board associated with each kit with a water-dampened (not dripping) microfiber cloth and report any damage (bend, break, scratch, etc.)', order: 15, active: true },
+      { id: 16, title: 'All accessories accounted for and operational.', order: 16, active: true },
+      { id: 17, title: 'Equipment properly labeled and organized in transport cases.', order: 17, active: true },
+      { id: 18, title: 'Use the equipment checklist to verify that all listed devices and equipment are present before moderator pickup.', order: 18, active: true },
+      { id: 19, title: 'Retired step', order: 0, active: false },
     ],
     logs: [],
   };
@@ -369,10 +383,11 @@ function upsertAccess(db, write, actor, params) {
   if (!isAcceptableEmail(email)) {
     return fail('Use a Centific email (name@centific.com).', 'INVALID');
   }
-  const role = roleLabel(params.role);
-  if (role !== 'Admin' && role !== 'User') {
+  const roleText = String(params.role ?? '').trim().toLowerCase();
+  if (roleText !== 'admin' && roleText !== 'user' && roleText !== 'staff') {
     return fail('Role must be Admin or User.', 'INVALID');
   }
+  const role = roleText === 'admin' ? 'Admin' : 'User';
   const active = params.active === undefined ? true : params.active;
   if (typeof active !== 'boolean') return fail('Active must be true or false.', 'INVALID');
   const derived = deriveName(email);

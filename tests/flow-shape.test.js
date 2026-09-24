@@ -11,9 +11,10 @@ test('admin role matches Admin regardless of case', () => {
   assert.equal(isAdminRole(''), false);
 });
 
-test('role labels stay Admin or User', () => {
+test('role labels stay Admin or Staff', () => {
   assert.equal(roleLabel('admin'), 'Admin');
-  assert.equal(roleLabel('USER'), 'User');
+  assert.equal(roleLabel('USER'), 'Staff');
+  assert.equal(roleLabel('Staff'), 'Staff');
 });
 
 test('tasks stay visible unless Active is explicitly false', () => {

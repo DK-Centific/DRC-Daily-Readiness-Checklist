@@ -105,6 +105,9 @@ test('a late refresh keeps an access form, and save posts the typed person', asy
   assert.equal(saved.ok, true);
   assert.equal(saved.data.email, 'sam.lee@centific.com');
   assert.equal(saved.data.name, 'Sam Lee');
+  assert.equal(saved.data.role, 'User');
+  const staff = accessPayload({ ...editor, role: 'Staff' });
+  assert.equal(staff.role, 'User');
 });
 
 test('access validation explains a missing name or a non-Centific email', () => {

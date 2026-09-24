@@ -1,3 +1,5 @@
+import { roleValue } from './flow-shape.js';
+
 /** Settings drafts. Background refreshes must not wipe a form the user has open. */
 
 export function blankKit(sortOrder = 1) {
@@ -107,7 +109,7 @@ export function accessPayload(editor) {
     email: String(editor?.email || '').trim(),
     firstName: String(editor?.firstName || '').trim(),
     lastName: String(editor?.lastName || '').trim(),
-    role: String(editor?.role || '').toLowerCase() === 'admin' ? 'Admin' : 'User',
+    role: roleValue(editor?.role),
     active: editor?.active !== false,
   };
   if (editor?.id) payload.id = Number(editor.id);

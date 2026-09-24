@@ -127,11 +127,13 @@ test('a deactivated person cannot sign in or call other actions', async () => {
   assert.equal(kits.code, 'NO_ACCESS');
 });
 
-test('tasks include Check hardware status and are ordered by TaskOrder', async () => {
+test('tasks include the live checklist titles and are ordered by TaskOrder', async () => {
   const api = backend();
   const result = await api.call({ action: 'getTasks', actor: JANE });
   assert.equal(result.ok, true);
-  assert.ok(result.data.some((task) => task.title === 'Check hardware status'));
+  assert.equal(result.data.length, 18);
+  assert.ok(result.data.some((task) => task.title.includes('Walkie-talkies')));
+  assert.ok(result.data.some((task) => task.title.includes('calibration board')));
   assert.equal(result.data.some((task) => task.title === 'Retired step'), false);
   const orders = result.data.map((task) => task.order);
   assert.deepEqual(orders, [...orders].sort((a, b) => a - b));

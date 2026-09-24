@@ -4,11 +4,17 @@ export function isAdminRole(role) {
   return String(role ?? '').trim().toLowerCase() === 'admin';
 }
 
+/** What the page shows. SharePoint still stores User. */
 export function roleLabel(role) {
   if (isAdminRole(role)) return 'Admin';
-  const text = String(role ?? '').trim();
-  if (text.toLowerCase() === 'user') return 'User';
-  return text;
+  const text = String(role ?? '').trim().toLowerCase();
+  if (text === 'user' || text === 'staff') return 'Staff';
+  return String(role ?? '').trim();
+}
+
+/** What upsertAccess sends. Staff on screen is User in SharePoint. */
+export function roleValue(role) {
+  return isAdminRole(role) ? 'Admin' : 'User';
 }
 
 /** Hide a task only when Active is explicitly false. A missing flag stays visible. */
