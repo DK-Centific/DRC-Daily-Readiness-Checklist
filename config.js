@@ -3,4 +3,12 @@
 window.DRC_CONFIG = {
   backend: 'mock',
   FLOW_URL: '',
+  // Which date control each role sees.
+  // chip: compact "Today" chip. Change date opens the full month.
+  // month: the full month stays on the page, with a dot on days that have a claim.
+  // Change these when the final layout is chosen. Unknown values act as chip.
+  calendar: {
+    staff: 'chip',
+    admin: 'chip',
+  },
 };

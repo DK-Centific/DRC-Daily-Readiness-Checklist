@@ -11,8 +11,16 @@ import {
   validateKit,
 } from './editor-state.js';
 import { isAdminRole, isTaskVisible, roleLabel } from './flow-shape.js';
+import {
+  calendarLayout,
+  calendarMarks,
+  marksFromRows,
+  renderDateChip,
+  renderMonthCalendar,
+} from './calendar-view.js';
 import { groupTasks, taskHint } from './task-groups.js';
 import { historyEvents } from './history-events.js';
+import { applyTheme, saveThemeChoice, watchSystemTheme } from './theme.js';
 import {
   TASK_SAVE_WAIT_MS,
   TASKS_CACHE_KEY,
@@ -95,6 +103,8 @@ const state = {
   toast: null,
   conflictKitId: null,
   historyQuery: '',
+  monthHistoryMarks: {},
+  monthMarksKey: '',
 };
 
 let kitsSerial = 0;
@@ -386,6 +396,7 @@ function render() {
   }
   if (!state.user) {
     app.innerHTML = renderLogin();
+    finishPaint();
     return;
   }
   const shell = document.getElementById('shell');
@@ -397,12 +408,14 @@ function render() {
     syncHeader();
     syncModal();
     syncToast();
+    finishPaint();
     return;
   }
   if (!shell) {
     app.innerHTML = renderShell();
     syncModal();
     syncToast();
+    finishPaint();
     return;
   }
   const panel = document.getElementById('panel');
@@ -417,6 +430,30 @@ function render() {
   syncHeader();
   syncModal();
   syncToast();
+  finishPaint();
+}
+
+function themeToggle() {
+  const choice = document.documentElement.dataset.themeChoice || 'system';
+  const item = (id, label) => {
+    const on = choice === id;
+    return `<button type="button" role="radio" class="${on ? 'on' : ''}" data-action="theme" data-theme="${id}" aria-checked="${on}">${label}</button>`;
+  };
+  return `<div class="theme-toggle" role="radiogroup" aria-label="Color theme">${item('light', 'Light')}${item('dark', 'Dark')}${item('system', 'System')}</div>`;
+}
+
+function paintThemeToggle() {
+  const choice = document.documentElement.dataset.themeChoice || 'system';
+  document.querySelectorAll('[data-action="theme"]').forEach((button) => {
+    const on = button.dataset.theme === choice;
+    button.classList.toggle('on', on);
+    button.setAttribute('aria-checked', String(on));
+  });
+}
+
+function finishPaint() {
+  paintThemeToggle();
+  scheduleMonthMarks();
 }
 
 function renderLogin() {
@@ -432,6 +469,7 @@ function renderLogin() {
     </div>` : '';
   return `
     <main class="login-wrap" id="main">
+      <div class="login-theme">${themeToggle()}</div>
       <section class="login-card" aria-labelledby="login-title">
         <img class="login-logo" src="assets/centific-logo.png" width="72" height="72" alt="Centific">
         <p class="eyebrow">Centific · Data Collection</p>
@@ -484,6 +522,7 @@ function renderShell() {
         <div class="header-right">
           <span class="sync-pill ${sync.cls}" role="status">${icon} ${esc(sync.label)}</span>
           <span class="user-chip">You · <strong>${esc(state.user.name)}</strong></span>
+          ${themeToggle()}
           <button type="button" class="btn btn-ghost" data-action="sign-out">Sign out</button>
         </div>
       </header>
@@ -496,38 +535,60 @@ function renderShell() {
     </div>`;
 }
 
-function calendarPopover() {
+function visibleMonthMarks() {
+  return calendarMarks({
+    historyMarks: state.monthHistoryMarks,
+    kits: state.kits,
+    date: state.date,
+    email: state.user?.email,
+    kitsLoaded: state.kitsLoaded,
+  });
+}
+
+function monthCalendarHtml(layout) {
   const today = pacificDate();
   const cells = calendarCells(state.viewYear, state.viewMonth);
   const tabStop = cells.includes(state.date)
     ? state.date
     : cells.find((ymd) => splitYmd(ymd).month === state.viewMonth);
+  const marks = visibleMonthMarks();
   const days = cells.map((ymd) => {
     const { day, month } = splitYmd(ymd);
-    const outside = month !== state.viewMonth;
-    const selected = ymd === state.date;
-    const isToday = ymd === today;
-    const classes = ['day', outside ? 'outside' : '', selected ? 'selected' : '', isToday ? 'today' : ''].filter(Boolean).join(' ');
-    const label = `${formatLongDate(ymd)}${isToday ? ', today' : ''}${selected ? ', selected' : ''}`;
-    return `<button type="button" class="${classes}" id="day-${ymd}" data-action="pick-date" data-date="${ymd}" aria-pressed="${selected}" aria-label="${esc(label)}" tabindex="${ymd === tabStop ? '0' : '-1'}">${day}</button>`;
-  }).join('');
+    return {
+      ymd,
+      dayNumber: day,
+      outside: month !== state.viewMonth,
+      label: formatLongDate(ymd),
+      tabStop: ymd === tabStop,
+    };
+  });
   const quick = [
     ['today', 'Today', today],
     ['yesterday', 'Yesterday', addDays(today, -1)],
     ['lastweek', 'Last week', addDays(today, -7)],
-  ].map(([id, label, ymd]) => `
-    <button type="button" class="btn btn-ghost btn-sm" data-action="quick-date" data-which="${id}" aria-pressed="${state.date === ymd}">${label}</button>
-  `).join('');
+  ].map(([id, label, ymd]) => ({ id, label, pressed: state.date === ymd }));
+  return renderMonthCalendar({
+    monthLabel: formatMonthYear(state.viewYear, state.viewMonth),
+    days,
+    selected: state.date,
+    today,
+    marks,
+    layout,
+    weekdays: WEEKDAYS,
+    quick,
+  });
+}
+
+function renderDateSection() {
+  const today = pacificDate();
+  if (calendarLayout(state.config, isAdmin()) === 'month') {
+    return monthCalendarHtml('panel');
+  }
   return `
-    <div class="date-popover" id="date-popover">
-      <div class="calendar-head">
-        <button type="button" class="icon-btn" data-action="prev-month" aria-label="Previous month">‹</button>
-        <div class="month-label">${esc(formatMonthYear(state.viewYear, state.viewMonth))}</div>
-        <button type="button" class="icon-btn" data-action="next-month" aria-label="Next month">›</button>
-      </div>
-      <div class="weekdays">${WEEKDAYS.map((day) => `<span>${day}</span>`).join('')}</div>
-      <div class="days">${days}</div>
-      <div class="quick">${quick}</div>
+    <div class="date-row">
+      ${renderDateChip(formatChipDate(state.date || today, today))}
+      <button type="button" class="btn btn-ghost" id="change-date" data-action="toggle-date" aria-expanded="${state.dateOpen}">Change date</button>
+      ${state.dateOpen ? monthCalendarHtml('popover') : ''}
     </div>`;
 }
 
@@ -542,7 +603,6 @@ function stepRail(step) {
 }
 
 function renderChecklist() {
-  const today = pacificDate();
   const mine = state.kits.find((kit) => kit.claim && kit.claim.userEmail === state.user?.email);
   const step = mine ? 3 : 2;
   return `
@@ -550,11 +610,7 @@ function renderChecklist() {
     ${banner('err', state.error, state.errorCode)}
     ${banner('ok', state.message)}
     <p class="section-label">1 · Date</p>
-    <div class="date-row">
-      <span class="date-chip">${esc(formatChipDate(state.date || today, today))}</span>
-      <button type="button" class="btn btn-ghost" id="change-date" data-action="toggle-date" aria-expanded="${state.dateOpen}">Change date</button>
-      ${state.dateOpen ? calendarPopover() : ''}
-    </div>
+    ${renderDateSection()}
     ${mine ? renderSession(mine) : ''}
     ${!mine || isAdmin() ? `
       <p class="section-label">2 · Kit</p>
@@ -1465,6 +1521,38 @@ function showCachedHistory() {
   return true;
 }
 
+let marksSerial = 0;
+let marksFlight = '';
+
+function scheduleMonthMarks() {
+  if (!state.user || state.tab !== 'checklist') return;
+  const showMonth = calendarLayout(state.config, isAdmin()) === 'month' || state.dateOpen;
+  if (!showMonth) return;
+  const cells = calendarCells(state.viewYear, state.viewMonth);
+  const key = `${cells[0]}:${cells[cells.length - 1]}`;
+  if (state.monthMarksKey === key || marksFlight === key) return;
+  refreshMonthMarks(key);
+}
+
+async function refreshMonthMarks(key) {
+  const serial = ++marksSerial;
+  marksFlight = key;
+  const [from, to] = key.split(':');
+  const actor = state.user?.email;
+  try {
+    const rows = await apiCall('getHistory', { from, to }, { lane: 'calendar-marks' });
+    if (serial !== marksSerial || state.user?.email !== actor) return;
+    state.monthHistoryMarks = marksFromRows(rows, actor);
+    state.monthMarksKey = key;
+    if (state.tab === 'checklist') render();
+  } catch (error) {
+    if (isAbort(error) || serial !== marksSerial) return;
+    state.monthMarksKey = key;
+  } finally {
+    if (marksFlight === key) marksFlight = '';
+  }
+}
+
 function rowMatchesFilters(row) {
   const mine = Boolean(state.filters.mineOnly);
   const email = String(mine ? state.user?.email : state.filters.userEmail || '').trim().toLowerCase();
@@ -1627,6 +1715,10 @@ function signOut() {
   state.toast = null;
   state.conflictKitId = null;
   state.historyQuery = '';
+  state.monthHistoryMarks = {};
+  state.monthMarksKey = '';
+  marksSerial += 1;
+  marksFlight = '';
   state.signingIn = false;
   state.pendingCheckIn = false;
   state.pendingCheckOut = false;
@@ -1846,6 +1938,12 @@ function onClick(event) {
     return;
   }
   const action = button.dataset.action;
+  if (action === 'theme') {
+    saveThemeChoice(button.dataset.theme);
+    paintThemeToggle();
+    if (closeDate) render();
+    return;
+  }
   if (action === 'demo') signIn(button.dataset.email);
   else if (action === 'reset-demo') resetDemo();
   else if (action === 'sign-out') signOut();
@@ -2050,6 +2148,8 @@ document.addEventListener('input', (event) => {
 document.addEventListener('keydown', onKeyDown);
 
 async function init() {
+  applyTheme();
+  watchSystemTheme(() => paintThemeToggle());
   state.config = await loadConfig();
   state.api = createClient({
     backend: state.config.backend,

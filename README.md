@@ -42,6 +42,19 @@ You can also type an email and click **Sign in**. An email that is not on the li
 
 **Reset sample data** on the sign-in page (or in Settings) puts the sample people, kits, and tasks back. Your sign-in lasts until you click **Sign out** or close the tab.
 
+### Light, Dark, and System
+
+Next to **Sign out** (and on the sign-in page) there is **Light / Dark / System**. System follows the device. The choice stays in this browser. The page applies it before the first paint, so it should not flash the other theme.
+
+### Date control
+
+Everyone currently sees the compact **Today** chip. **Change date** opens the full month. Days with a claim get a small dot.
+
+`config.js` can switch that per role without removing either control:
+
+- `calendar.staff` and `calendar.admin` are each `'chip'` or `'month'`.
+- `'month'` keeps the full month on the page.
+
 ## Practice mode and the real flow
 
 | | Practice mode | Connected mode |
