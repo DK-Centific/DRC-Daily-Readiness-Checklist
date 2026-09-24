@@ -44,11 +44,11 @@ You can also type an email and click **Sign in**. An email that is not on the li
 
 ### Light, Dark, and System
 
-Next to **Sign out** (and on the sign-in page) there is **Light / Dark / System**. System follows the device. The choice stays in this browser. The page applies it before the first paint, so it should not flash the other theme.
+Next to **Sign out** there are three icons: sun (Light), monitor (System), moon (Dark). System follows the device and is the one already selected. The choice stays in this browser. On a phone, tap your initials to open the same choice and **Sign out**.
 
 ### Date control
 
-Everyone currently sees the compact **Today** chip. **Change date** opens the full month. Days with a claim get a small dot.
+Everyone currently sees the compact **Today** chip. **Change date** opens the full month. Days with a claim get a small dot. Two fuller layouts are built and waiting: one for admins with the month always open, and one lighter month for everyone. The page stays on the chip until that choice is made.
 
 `config.js` can switch that per role without removing either control:
 

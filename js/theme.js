@@ -1,6 +1,7 @@
-/** Light / Dark / System. The inline script in index.html uses the same key and values. */
+/** Light / Dark / System. The inline script in index.html uses the same key. */
 
-export const THEME_KEY = 'drc.theme';
+export const THEME_KEY = 'drc_theme';
+const LEGACY_THEME_KEY = 'drc.theme';
 
 export function normalizeChoice(value) {
   const text = String(value || '').trim().toLowerCase();
@@ -8,19 +9,33 @@ export function normalizeChoice(value) {
   return 'system';
 }
 
-/** choice is light, dark, or system. prefersDark is the OS setting. */
+/** What the page would look like. System follows the OS. */
 export function resolveTheme(choice, prefersDark) {
   const picked = normalizeChoice(choice);
   if (picked === 'light' || picked === 'dark') return picked;
   return prefersDark ? 'dark' : 'light';
 }
 
+/** System leaves data-theme unset so the prefers-color-scheme block can apply. */
+export function themeAttribute(choice) {
+  const picked = normalizeChoice(choice);
+  return picked === 'system' ? null : picked;
+}
+
 export function readThemeChoice() {
   try {
-    return normalizeChoice(localStorage.getItem(THEME_KEY));
+    const current = localStorage.getItem(THEME_KEY);
+    if (current) return normalizeChoice(current);
+    const legacy = localStorage.getItem(LEGACY_THEME_KEY);
+    if (legacy) {
+      const picked = normalizeChoice(legacy);
+      localStorage.setItem(THEME_KEY, picked);
+      return picked;
+    }
   } catch {
-    return 'system';
+    /* private mode */
   }
+  return 'system';
 }
 
 export function systemPrefersDark() {
@@ -29,10 +44,11 @@ export function systemPrefersDark() {
 
 export function applyTheme(choice = readThemeChoice()) {
   const picked = normalizeChoice(choice);
-  const theme = resolveTheme(picked, systemPrefersDark());
-  document.documentElement.setAttribute('data-theme', theme);
+  const attr = themeAttribute(picked);
+  if (attr) document.documentElement.setAttribute('data-theme', attr);
+  else document.documentElement.removeAttribute('data-theme');
   document.documentElement.setAttribute('data-theme-choice', picked);
-  return { choice: picked, theme };
+  return { choice: picked, theme: attr || resolveTheme(picked, systemPrefersDark()) };
 }
 
 export function saveThemeChoice(choice) {

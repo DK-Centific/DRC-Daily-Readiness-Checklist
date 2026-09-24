@@ -433,22 +433,52 @@ function render() {
   finishPaint();
 }
 
-function themeToggle() {
+const THEME_ICONS = {
+  light: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>',
+  system: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>',
+  dark: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 14.5A8.5 8.5 0 1110.5 3a7 7 0 0010.5 11.5z"/></svg>',
+};
+
+function themeToggle(extraClass = '') {
   const choice = document.documentElement.dataset.themeChoice || 'system';
   const item = (id, label) => {
     const on = choice === id;
-    return `<button type="button" role="radio" class="${on ? 'on' : ''}" data-action="theme" data-theme="${id}" aria-checked="${on}">${label}</button>`;
+    return `<button type="button" data-action="theme" data-theme="${id}" aria-label="${label}" title="${label}" aria-pressed="${on}">${THEME_ICONS[id]}</button>`;
   };
-  return `<div class="theme-toggle" role="radiogroup" aria-label="Color theme">${item('light', 'Light')}${item('dark', 'Dark')}${item('system', 'System')}</div>`;
+  const cls = extraClass ? `theme-toggle ${extraClass}` : 'theme-toggle';
+  return `<div class="${cls}" role="group" aria-label="Theme">${item('light', 'Light')}${item('system', 'System')}${item('dark', 'Dark')}</div>`;
 }
 
 function paintThemeToggle() {
   const choice = document.documentElement.dataset.themeChoice || 'system';
   document.querySelectorAll('[data-action="theme"]').forEach((button) => {
-    const on = button.dataset.theme === choice;
-    button.classList.toggle('on', on);
-    button.setAttribute('aria-checked', String(on));
+    button.setAttribute('aria-pressed', String(button.dataset.theme === choice));
   });
+}
+
+function setAccountMenu(open) {
+  const menu = document.getElementById('account-menu');
+  const trigger = document.querySelector('.account-trigger');
+  if (!menu) return;
+  menu.hidden = !open;
+  trigger?.setAttribute('aria-expanded', String(open));
+}
+
+function accountMenu() {
+  const name = state.user?.name || '';
+  const first = name.trim().split(/\s+/)[0] || name;
+  return `
+    <div class="account-menu-wrap">
+      <button type="button" class="account-trigger" data-action="account-menu" aria-expanded="false" aria-haspopup="menu" aria-label="Account">
+        <span class="account-avatar">${esc(initials(name, state.user?.email))}</span>
+        <strong>${esc(first)}</strong>
+      </button>
+      <div class="account-menu" id="account-menu" hidden role="menu">
+        <div class="account-menu-label">Theme</div>
+        ${themeToggle()}
+        <button type="button" class="account-menu-item" data-action="sign-out" role="menuitem">Sign out</button>
+      </div>
+    </div>`;
 }
 
 function finishPaint() {
@@ -470,8 +500,9 @@ function renderLogin() {
   return `
     <main class="login-wrap" id="main">
       <div class="login-theme">${themeToggle()}</div>
+      <div class="login-stack">
+      <img class="login-logo" src="assets/centific-logo.png" width="72" height="72" alt="Centific">
       <section class="login-card" aria-labelledby="login-title">
-        <img class="login-logo" src="assets/centific-logo.png" width="72" height="72" alt="Centific">
         <p class="eyebrow">Centific · Data Collection</p>
         <h1 class="title" id="login-title">Daily Readiness Checklist</h1>
         <p class="login-lead">Sign in with your Centific ID. Only people on the access list can continue.</p>
@@ -488,6 +519,7 @@ function renderLogin() {
         ${demos}
         <p class="mode-note">${practice ? 'Practice mode: sample data stays in this browser.' : 'Connected mode: this page talks to the shared checklist service.'}</p>
       </section>
+      </div>
     </main>`;
 }
 
@@ -521,9 +553,10 @@ function renderShell() {
         </div>
         <div class="header-right">
           <span class="sync-pill ${sync.cls}" role="status">${icon} ${esc(sync.label)}</span>
-          <span class="user-chip">You · <strong>${esc(state.user.name)}</strong></span>
-          ${themeToggle()}
-          <button type="button" class="btn btn-ghost" data-action="sign-out">Sign out</button>
+          <span class="user-chip user-chip-desktop">You · <strong>${esc(state.user.name)}</strong></span>
+          ${themeToggle('theme-toggle-desktop')}
+          <button type="button" class="btn btn-ghost sign-out-desktop" data-action="sign-out">Sign out</button>
+          ${accountMenu()}
         </div>
       </header>
       ${isAdmin() ? '<p class="admin-strip">Admin View</p>' : ''}
@@ -1932,12 +1965,18 @@ function onClick(event) {
       closeDate = true;
     }
   }
+  const accountWrap = document.querySelector('.account-menu-wrap');
+  if (accountWrap && !accountWrap.contains(event.target)) setAccountMenu(false);
   const button = event.target.closest('[data-action]');
   if (!button) {
     if (closeDate) render();
     return;
   }
   const action = button.dataset.action;
+  if (action === 'account-menu') {
+    setAccountMenu(Boolean(document.getElementById('account-menu')?.hidden));
+    return;
+  }
   if (action === 'theme') {
     saveThemeChoice(button.dataset.theme);
     paintThemeToggle();

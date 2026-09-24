@@ -3,10 +3,10 @@
 window.DRC_CONFIG = {
   backend: 'mock',
   FLOW_URL: '',
-  // Which date control each role sees.
-  // chip: compact "Today" chip. Change date opens the full month.
-  // month: the full month stays on the page, with a dot on days that have a claim.
-  // Change these when the final layout is chosen. Unknown values act as chip.
+  // Which date control each role sees. David has not picked variant A or B yet.
+  // chip: compact "Today" chip. Change date opens the month (staff side of A).
+  // month: the full month stays on the page (variant B, and the admin side of A).
+  // Unknown values act as chip. Both pieces stay in the page either way.
   calendar: {
     staff: 'chip',
     admin: 'chip',

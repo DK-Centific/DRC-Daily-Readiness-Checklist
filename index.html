@@ -8,13 +8,21 @@
     (function () {
       var choice = 'system';
       try {
-        var stored = localStorage.getItem('drc.theme');
+        var stored = localStorage.getItem('drc_theme');
+        if (!stored) {
+          var legacy = localStorage.getItem('drc.theme');
+          if (legacy === 'light' || legacy === 'dark' || legacy === 'system') {
+            stored = legacy;
+            localStorage.setItem('drc_theme', legacy);
+          }
+        }
         if (stored === 'light' || stored === 'dark' || stored === 'system') choice = stored;
       } catch (e) {}
-      var theme = choice === 'system'
-        ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
-        : choice;
-      document.documentElement.setAttribute('data-theme', theme);
+      if (choice === 'light' || choice === 'dark') {
+        document.documentElement.setAttribute('data-theme', choice);
+      } else {
+        document.documentElement.removeAttribute('data-theme');
+      }
       document.documentElement.setAttribute('data-theme-choice', choice);
     })();
   </script>
@@ -22,7 +30,7 @@
   <link rel="icon" type="image/png" sizes="256x256" href="assets/centific-logo.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
-  <link rel="stylesheet" href="css/styles.css?v=9">
+  <link rel="stylesheet" href="css/styles.css?v=10">
 </head>
 <body>
   <a class="skip" href="#main">Skip to content</a>
@@ -34,6 +42,6 @@
     </noscript>
   </div>
   <script src="config.js"></script>
-  <script type="module" src="js/app.js?v=9"></script>
+  <script type="module" src="js/app.js?v=10"></script>
 </body>
 </html>
