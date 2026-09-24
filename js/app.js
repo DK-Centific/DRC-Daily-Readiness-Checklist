@@ -1,5 +1,6 @@
 import { createClient } from './api.js';
 import { isAdminRole, isTaskVisible, roleLabel } from './flow-shape.js';
+import { historyEvents } from './history-events.js';
 import {
   addDays,
   calendarCells,
@@ -41,7 +42,9 @@ const state = {
   history: [],
   historyError: '',
   historyCode: '',
-  filters: { userEmail: '', kitId: '', from: '', to: '' },
+  filters: { userEmail: '', kitId: '', from: '', to: '', mineOnly: false },
+  people: new Map(),
+  historyHint: '',
   access: [],
   allKits: [],
   settingsError: '',
@@ -97,6 +100,42 @@ async function apiCall(action, params = {}) {
 function rememberKit(id, name) {
   if (id == null || !name) return;
   state.kitChoices.set(Number(id), name);
+}
+
+function rememberPerson(email, name) {
+  const key = String(email || '').trim().toLowerCase();
+  if (!key) return;
+  const label = String(name || '').trim() || key;
+  if (!state.people.has(key) || (name && state.people.get(key) === key)) {
+    state.people.set(key, label);
+  }
+}
+
+function defaultFilters(user = state.user) {
+  return {
+    userEmail: '',
+    kitId: '',
+    from: '',
+    to: '',
+    mineOnly: !isAdminRole(user?.role),
+  };
+}
+
+function rowEmails(row) {
+  return [row?.userEmail, row?.checkedOutByEmail, row?.CheckedOutByEmail]
+    .map((value) => String(value || '').trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function personChoices() {
+  const map = new Map(state.people);
+  for (const person of state.access) {
+    if (person?.email) map.set(String(person.email).trim().toLowerCase(), person.name || person.email);
+  }
+  if (state.user?.email) {
+    map.set(String(state.user.email).trim().toLowerCase(), state.user.name || state.user.email);
+  }
+  return [...map.entries()].sort((a, b) => a[1].localeCompare(b[1]));
 }
 
 function selectedKit() {
@@ -391,40 +430,62 @@ function renderTasks() {
     </section>`;
 }
 
+function personLabel(name, email) {
+  const who = name || email || 'Unknown';
+  return email ? `${who} (${email})` : who;
+}
+
 function renderHistory() {
   const kitOptions = [...state.kitChoices.entries()]
     .sort((a, b) => a[1].localeCompare(b[1]))
     .map(([id, name]) => `<option value="${id}" ${String(state.filters.kitId) === String(id) ? 'selected' : ''}>${esc(name)}</option>`)
     .join('');
-  const userFilter = isAdmin() ? `
-    <div>
-      <label for="filter-user">Person</label>
-      <select id="filter-user" name="userEmail">
-        <option value="">Everyone</option>
-        ${state.access.map((person) => `<option value="${esc(person.email)}" ${state.filters.userEmail === person.email ? 'selected' : ''}>${esc(person.name)}</option>`).join('')}
-      </select>
-    </div>` : '';
-  const cards = state.history.map((row) => `
-    <li class="history-card">
-      <h3>${esc(row.kitName)}</h3>
-      <p class="meta">${esc(formatYmdLabel(row.claimDate))}${isAdmin() ? ` · ${esc(row.userName)}` : ''}</p>
-      <dl class="facts">
-        <div><dt>Check-in (PT)</dt><dd>${esc(formatPtDateTime(row.checkInAt))}</dd></div>
-        <div><dt>Check-out (PT)</dt><dd>${row.checkOutAt ? esc(formatPtDateTime(row.checkOutAt)) : 'Still checked in'}</dd></div>
-        <div><dt>Tasks completed</dt><dd>${esc(row.tasksCompleted)}/${esc(row.tasksTotal)}</dd></div>
-        <div><dt>Status</dt><dd>${row.status === 'CheckedOut' ? 'Checked out' : 'Checked in'}</dd></div>
-      </dl>
-    </li>
-  `).join('');
+  const mine = Boolean(state.filters.mineOnly);
+  const people = personChoices()
+    .map(([email, name]) => `<option value="${esc(email)}" ${state.filters.userEmail === email ? 'selected' : ''}>${esc(name)}</option>`)
+    .join('');
+  const events = historyEvents(state.history);
+  const cards = events.map((event) => {
+    const claimed = event.kind === 'claimed';
+    const badge = claimed
+      ? `<span class="badge claimed">${lockIcon()} Claimed</span>`
+      : '<span class="badge unclaimed">Unclaimed</span>';
+    const who = claimed
+      ? `Claimed by ${personLabel(event.name, event.email)}`
+      : `Unclaimed by ${personLabel(event.name, event.email)}`;
+    const when = event.at ? formatPtDateTime(event.at) : 'Time not recorded';
+    const tasks = claimed
+      ? ''
+      : `<p class="meta">Tasks completed ${esc(event.tasksCompleted)}/${esc(event.tasksTotal)}</p>`;
+    return `
+      <li class="history-card">
+        <div class="row-between">
+          <h3>${esc(event.kitName)}</h3>
+          ${badge}
+        </div>
+        <p class="who-line">${esc(who)}</p>
+        <p class="meta">Claim date ${esc(formatYmdLabel(event.claimDate))}</p>
+        <p class="meta">at ${esc(when)}</p>
+        ${tasks}
+      </li>`;
+  }).join('');
   const empty = state.historyError
     ? ''
     : '<p>No check-ins for these filters.</p>';
   return `
     <section class="card" aria-labelledby="history-heading">
-      <h2 id="history-heading">${isAdmin() ? 'History for everyone' : 'Your history'}</h2>
+      <h2 id="history-heading">Kit log</h2>
+      <p class="hint">Newest first. Each claim and each release is its own line.</p>
       ${banner('err', state.historyError, state.historyCode)}
+      ${state.historyHint ? `<p class="hint">${esc(state.historyHint)}</p>` : ''}
       <form id="history-form" class="filters" method="post" action="#">
-        ${userFilter}
+        <div>
+          <label for="filter-user">Person</label>
+          <select id="filter-user" name="userEmail" ${mine ? 'disabled' : ''}>
+            <option value="">Everyone</option>
+            ${people}
+          </select>
+        </div>
         <div>
           <label for="filter-kit">Kit</label>
           <select id="filter-kit" name="kitId">
@@ -440,12 +501,16 @@ function renderHistory() {
           <label for="filter-to">To date</label>
           <input id="filter-to" name="to" type="date" value="${esc(state.filters.to)}">
         </div>
+        <div class="check-row">
+          <input id="filter-mine" name="mineOnly" type="checkbox" ${mine ? 'checked' : ''}>
+          <label for="filter-mine">Mine only</label>
+        </div>
         <div class="actions">
           <button class="primary" type="submit">Show history</button>
           <button class="secondary" type="button" data-action="clear-filters">Clear</button>
         </div>
       </form>
-      ${state.history.length ? `<ul class="history-list">${cards}</ul>` : empty}
+      ${events.length ? `<ul class="history-list">${cards}</ul>` : empty}
     </section>`;
 }
 
@@ -643,6 +708,10 @@ async function enterApp(user) {
   state.selectedKitId = null;
   state.editor = null;
   state.modal = null;
+  state.people = new Map();
+  state.historyHint = '';
+  state.filters = defaultFilters(user);
+  rememberPerson(user.email, user.name);
   try {
     sessionStorage.setItem(SESSION_KEY, JSON.stringify(user));
   } catch {
@@ -824,19 +893,66 @@ async function toggleTask(taskId, checked) {
   }
 }
 
+function historyFiltersFromForm(form) {
+  const data = new FormData(form);
+  const mineOnly = Boolean(form.querySelector('#filter-mine')?.checked);
+  return {
+    userEmail: mineOnly ? '' : String(data.get('userEmail') || ''),
+    kitId: String(data.get('kitId') || ''),
+    from: String(data.get('from') || ''),
+    to: String(data.get('to') || ''),
+    mineOnly,
+  };
+}
+
+function rowMatchesFilters(row) {
+  const mine = state.filters.mineOnly;
+  const email = (mine ? state.user?.email : state.filters.userEmail) || '';
+  if (email) {
+    const wanted = String(email).trim().toLowerCase();
+    if (!rowEmails(row).includes(wanted)) return false;
+  }
+  if (state.filters.kitId && String(row.kitId) !== String(state.filters.kitId)) return false;
+  if (state.filters.from && String(row.claimDate || '') < state.filters.from) return false;
+  if (state.filters.to && String(row.claimDate || '') > state.filters.to) return false;
+  return true;
+}
+
 async function loadHistory() {
   state.historyError = '';
   state.historyCode = '';
+  state.historyHint = '';
   try {
-    if (isAdmin()) state.access = await apiCall('listAccess');
+    try {
+      const access = await apiCall('listAccess');
+      state.access = access;
+      access.forEach((person) => rememberPerson(person.email, person.name));
+    } catch {
+      /* Regular users cannot open the access list. Names still come from the kit log. */
+    }
     const params = {};
-    if (state.filters.userEmail) params.userEmail = state.filters.userEmail;
+    const mine = Boolean(state.filters.mineOnly);
+    if (mine && state.user?.email) params.userEmail = state.user.email;
+    else if (state.filters.userEmail) params.userEmail = state.filters.userEmail;
     if (state.filters.kitId) params.kitId = Number(state.filters.kitId);
     if (state.filters.from) params.from = state.filters.from;
     if (state.filters.to) params.to = state.filters.to;
-    state.history = await apiCall('getHistory', params);
-    state.history.forEach((row) => rememberKit(row.kitId, row.kitName));
+    const rows = await apiCall('getHistory', params);
+    rows.forEach((row) => {
+      rememberKit(row.kitId, row.kitName);
+      rememberPerson(row.userEmail, row.userName);
+      rememberPerson(row.checkedOutByEmail || row.CheckedOutByEmail, row.checkedOutByName || row.CheckedOutByName);
+    });
     state.kits.forEach((kit) => rememberKit(kit.id, kit.name));
+    const asked = String(state.filters.userEmail || '').trim().toLowerCase();
+    const self = String(state.user?.email || '').trim().toLowerCase();
+    if (!mine && asked && asked !== self) {
+      const matched = rows.some((row) => rowEmails(row).includes(asked));
+      if (!matched) {
+        state.historyHint = 'No rows matched that person. If you expected their check-ins, the shared checklist may still be limited to your own.';
+      }
+    }
+    state.history = rows.filter(rowMatchesFilters);
   } catch (error) {
     state.history = [];
     state.historyError = error.message;
@@ -903,6 +1019,9 @@ function signOut() {
   state.selectedKitId = null;
   state.message = '';
   state.history = [];
+  state.historyHint = '';
+  state.filters = defaultFilters(null);
+  state.people = new Map();
   state.access = [];
   state.allKits = [];
   state.editor = null;
@@ -1078,7 +1197,7 @@ function onClick(event) {
   else if (action === 'modal-cancel') closeModal();
   else if (action === 'modal-confirm') confirmModal();
   else if (action === 'clear-filters') {
-    state.filters = { userEmail: '', kitId: '', from: '', to: '' };
+    state.filters = defaultFilters();
     loadHistory();
   } else if (action === 'add-access') {
     state.editor = { kind: 'access', id: null, name: '', email: '', firstName: '', lastName: '', role: 'User', active: true };
@@ -1119,13 +1238,7 @@ function onSubmit(event) {
   if (formId === 'login-form') {
     signIn(new FormData(form).get('email'));
   } else if (formId === 'history-form') {
-    const data = new FormData(form);
-    state.filters = {
-      userEmail: String(data.get('userEmail') || ''),
-      kitId: String(data.get('kitId') || ''),
-      from: String(data.get('from') || ''),
-      to: String(data.get('to') || ''),
-    };
+    state.filters = historyFiltersFromForm(form);
     loadHistory();
   } else if (formId === 'access-form') {
     saveAccess(form);
@@ -1143,6 +1256,11 @@ function onChange(event) {
     render();
   } else if (target?.classList?.contains('task-check')) {
     toggleTask(Number(target.dataset.taskId), target.checked);
+  } else if (target?.id === 'filter-mine') {
+    const form = document.getElementById('history-form');
+    if (!form) return;
+    state.filters = historyFiltersFromForm(form);
+    loadHistory();
   }
 }
 

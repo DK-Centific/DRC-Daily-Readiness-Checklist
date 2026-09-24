@@ -248,6 +248,15 @@ test('someone else cannot check out a claim, but an admin can', async () => {
   });
   assert.equal(admin.ok, true);
   assert.equal(admin.data.tasksCompleted, 1);
+  assert.equal(admin.data.checkedOutByEmail, BRIAN);
+  assert.equal(admin.data.checkedOutByName, 'Brian Leong');
+  const history = await api.call({ action: 'getHistory', actor: JANE, userEmail: JANE });
+  assert.equal(history.data[0].userEmail, JANE);
+  assert.equal(history.data[0].checkedOutByEmail, BRIAN);
+  assert.equal(history.data[0].checkedOutByName, 'Brian Leong');
+  const byReleaser = await api.call({ action: 'getHistory', actor: JANE, userEmail: BRIAN });
+  assert.equal(byReleaser.data.length, 1);
+  assert.equal(byReleaser.data[0].checkedOutByEmail, BRIAN);
 });
 
 test('a non-admin cannot call admin actions', async () => {
@@ -275,31 +284,43 @@ test('a non-admin cannot call admin actions', async () => {
   assert.equal(kit.code, 'FORBIDDEN');
 });
 
-test('history for a non-admin is limited to that person even if they ask for someone else', async () => {
+test('any signed-in person can read the kit log, including someone else', async () => {
   const api = backend();
   const janeClaim = await api.call({ action: 'checkIn', actor: JANE, kitId: 1, date: DATE });
-  await api.call({
+  const checkedOut = await api.call({
     action: 'checkOut',
     actor: JANE,
     claimId: janeClaim.data.claimId,
     completedTaskIds: [1],
     tasksTotal: 4,
   });
+  assert.equal(checkedOut.data.checkedOutByEmail, JANE);
   await api.call({ action: 'checkIn', actor: BRIAN, kitId: 2, date: DATE });
-  const own = await api.call({
+  const brians = await api.call({
     action: 'getHistory',
     actor: JANE,
     userEmail: BRIAN,
     from: DATE,
     to: DATE,
   });
-  assert.equal(own.ok, true);
+  assert.equal(brians.ok, true);
+  assert.equal(brians.data.length, 1);
+  assert.equal(brians.data[0].userEmail, BRIAN);
+  const own = await api.call({
+    action: 'getHistory',
+    actor: JANE,
+    userEmail: JANE,
+    from: DATE,
+    to: DATE,
+  });
   assert.equal(own.data.length, 1);
   assert.equal(own.data[0].userEmail, JANE);
+  assert.equal(own.data[0].checkedOutByEmail, JANE);
   assert.equal(own.data[0].tasksCompleted, 1);
-  assert.equal(own.data[0].claimDate, DATE);
   assert.equal(formatPtDateTime(own.data[0].checkInAt).replace(/\s+/g, ' ').endsWith('PT'), true);
   assert.equal(formatPtDateTime(own.data[0].checkOutAt).replace(/\s+/g, ' ').endsWith('PT'), true);
+  const everyone = await api.call({ action: 'getHistory', actor: JANE });
+  assert.equal(everyone.data.length, 2);
 });
 
 test('an admin can filter history by user, kit, and date', async () => {

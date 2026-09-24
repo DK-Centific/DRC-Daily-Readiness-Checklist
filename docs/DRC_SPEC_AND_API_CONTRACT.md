@@ -57,8 +57,8 @@ Actions:
 - getKits {date} -> data: [{id, name, sortOrder, claim: null | {claimId, userEmail, userName, checkInAt, status}}]  (claim = open Status=Claimed claim for that date; also include lastCheckedOut optional)
 - checkIn {kitId, date} -> data: {claimId, kitId, kitName, date, checkInAt}  | error code KIT_CLAIMED / ALREADY_HAVE_CLAIM
 - updateTasks {claimId, completedTaskIds:[...]} -> data: {claimId, completedTaskIds}   (only owner)
-- checkOut {claimId, completedTaskIds, tasksTotal} -> data: {claimId, checkOutAt, tasksCompleted, tasksTotal}  (only owner or admin)
-- getHistory {userEmail?, from?, to?, kitId?} -> data: [log rows]  (non-admin forced to own email)
+- checkOut {claimId, completedTaskIds, tasksTotal} -> data: {claimId, checkOutAt, tasksCompleted, tasksTotal, checkedOutByEmail, checkedOutByName}  (only owner or admin; records the actor, who may differ from the claimant)
+- getHistory {userEmail?, from?, to?, kitId?} -> data: [log rows including checkedOutByEmail, checkedOutByName]  (every signed-in user can read the log; userEmail matches claimant or the person who unclaimed. Older flows may still force a non-admin to their own rows.)
 - listAccess {} (admin) -> data: [{id, name, email, firstName, lastName, role, active}]
 - upsertAccess {id?, name, email, firstName?, lastName?, role, active} (admin)
 - listKits / upsertKit {id?, name, active, sortOrder} (admin, optional)

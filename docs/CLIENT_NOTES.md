@@ -59,7 +59,7 @@ Errors: `KIT_CLAIMED` (someone already holds that kit that day), `ALREADY_HAVE_C
 
 `updateTasks` data: `{ claimId, completedTaskIds }` — owner only, and only while the claim is open.
 
-`checkOut` data: `{ claimId, checkOutAt, tasksCompleted, tasksTotal }` — owner or admin. Please count `tasksCompleted` from real task ids and set `tasksTotal` from the active task list. Do not trust a made-up total from the browser. Checking out sets `Status` to `CheckedOut` and frees the kit. A later check-in is a new log row.
+`checkOut` data: `{ claimId, checkOutAt, tasksCompleted, tasksTotal, checkedOutByEmail, checkedOutByName }` — owner or admin. Record the signed-in person who checked the kit out, even when that person is an admin releasing someone else’s claim. Please count `tasksCompleted` from real task ids and set `tasksTotal` from the active task list. Do not trust a made-up total from the browser. Checking out sets `Status` to `CheckedOut` and frees the kit. A later check-in is a new log row.
 
 `getHistory` data rows:
 
@@ -77,11 +77,15 @@ Errors: `KIT_CLAIMED` (someone already holds that kit that day), `ALREADY_HAVE_C
   "status": "Claimed",
   "tasksCompleted": 1,
   "tasksTotal": 4,
-  "completedTaskIds": [1]
+  "completedTaskIds": [1],
+  "checkedOutByEmail": "",
+  "checkedOutByName": ""
 }
 ```
 
-Non-admins only receive their own rows, even if they send another `userEmail`. `from` and `to` are inclusive `YYYY-MM-DD` claim dates. `kitId` is optional.
+`checkedOutByEmail` and `checkedOutByName` are blank until check-out. After check-out they are the person who released the kit. Older rows may omit them; the page then shows the claimant as the person who unclaimed. `CheckedOutByEmail` / `CheckedOutByName` are accepted too.
+
+Every signed-in person can read the kit log for all users. `userEmail` keeps rows where that person claimed the kit or released it. `from` and `to` are inclusive `YYYY-MM-DD` claim dates. `kitId` is optional. The History tab sends `userEmail` of the signed-in person when **Mine only** is on (on by default for a regular user, off for an admin). If a live flow still returns only that person’s own rows, the page shows what came back and, when they asked for someone else and nothing matched, a short note that the log may still be limited to them.
 
 `listAccess` data: `[{ id, name, email, firstName, lastName, role, active }]` including inactive people.
 

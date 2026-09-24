@@ -405,10 +405,30 @@ button:disabled, .primary:disabled {
 
 .filters {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
   gap: 0.7rem;
   margin-bottom: 0.9rem;
 }
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border-radius: 999px;
+  padding: 0.2rem 0.6rem;
+  font-size: 0.85rem;
+  font-weight: 650;
+  white-space: nowrap;
+  font-family: "Segoe UI", system-ui, sans-serif;
+}
+
+.badge .lock-icon { width: 0.95rem; height: 0.95rem; vertical-align: 0; }
+
+.badge.claimed { background: var(--amber-bg); color: var(--amber-ink); }
+
+.badge.unclaimed { background: var(--ok-bg); color: var(--ok-ink); }
+
+.who-line { margin: 0.35rem 0 0; font-weight: 650; }
 
 .filters .actions { display: flex; gap: 0.5rem; align-items: end; }
 

@@ -129,6 +129,8 @@ function publicLog(row) {
     tasksCompleted: row.tasksCompleted,
     tasksTotal: row.tasksTotal,
     completedTaskIds: [...row.completedTaskIds],
+    checkedOutByEmail: row.checkedOutByEmail || '',
+    checkedOutByName: row.checkedOutByName || '',
   };
 }
 
@@ -269,6 +271,8 @@ function checkIn(db, write, actor, params) {
     tasksCompleted: 0,
     tasksTotal: activeTasks(db).length,
     completedTaskIds: [],
+    checkedOutByEmail: '',
+    checkedOutByName: '',
   };
   db.logs.push(log);
   write(db);
@@ -303,7 +307,7 @@ function checkOut(db, write, actor, params) {
   if (!claim) return fail('That check-in was not found.', 'NOT_FOUND');
   if (claim.status !== 'Claimed') return fail('This kit is already checked out.', 'NOT_OPEN');
   const isOwner = claim.userEmail === auth.user.email;
-  if (!isOwner && auth.user.role !== 'Admin') {
+  if (!isOwner && !isAdminRole(auth.user.role)) {
     return fail('Only the person who checked in this kit can check it out.', 'NOT_OWNER');
   }
   const ids = Array.isArray(params.completedTaskIds) ? params.completedTaskIds : claim.completedTaskIds;
@@ -312,12 +316,16 @@ function checkOut(db, write, actor, params) {
   claim.tasksTotal = activeTasks(db).length;
   claim.status = 'CheckedOut';
   claim.checkOutAt = new Date().toISOString();
+  claim.checkedOutByEmail = auth.user.email;
+  claim.checkedOutByName = auth.user.name;
   write(db);
   return ok({
     claimId: claim.id,
     checkOutAt: claim.checkOutAt,
     tasksCompleted: claim.tasksCompleted,
     tasksTotal: claim.tasksTotal,
+    checkedOutByEmail: claim.checkedOutByEmail,
+    checkedOutByName: claim.checkedOutByName,
   });
 }
 
@@ -325,10 +333,10 @@ function getHistory(db, actor, params) {
   const auth = requireActive(db, actor);
   if (!auth.user) return auth;
   let rows = db.logs.slice();
-  const email = auth.user.role === 'Admin'
-    ? (params.userEmail ? normalizeEmail(params.userEmail) : '')
-    : auth.user.email;
-  if (email) rows = rows.filter((row) => row.userEmail === email);
+  const email = params.userEmail ? normalizeEmail(params.userEmail) : '';
+  if (email) {
+    rows = rows.filter((row) => row.userEmail === email || row.checkedOutByEmail === email);
+  }
   if (params.kitId !== undefined && params.kitId !== null && params.kitId !== '') {
     const kitId = asId(params.kitId);
     rows = rows.filter((row) => row.kitId === kitId);

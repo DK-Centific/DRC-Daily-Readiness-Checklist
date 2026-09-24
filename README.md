@@ -36,8 +36,9 @@ You can also type an email and click **Sign in**. An email that is not on the li
 3. Check a task, such as **Check hardware status**.
 4. Click **Sign out**, then sign in as Brian Leong. Kit 01 stays locked and Brian cannot check it in for that same day. He can check in a different kit, or the same kit on another day.
 5. Sign back in as Jane. The task you checked is still checked. Click **Check out**, then **Confirm** on “Please ensure you have completed the task.”
-6. Open **History**. Check-in and check-out times are in Pacific time, with tasks shown as a count like `1/4`.
-7. Sign in as Brian (or Annie, or admin-drc). The page shows **Admin View** and a **Settings** tab. Add a person (name, email, Admin or User, active). History can be filtered by person, kit, and date.
+6. Open **History**. You see a **Claimed** line (amber, with a lock) and, after check-out, an **Unclaimed** line (green). Each line names the person and their email, and shows the Pacific time. An unclaimed line also shows tasks like `1/4`. **Mine only** is already on, so you see your own lines.
+7. Turn **Mine only** off and click **Show history**. You can see other people’s kit lines. Use Person, Kit, and the dates to narrow the list.
+8. Sign in as Brian (or Annie, or admin-drc). The page shows **Admin View** and a **Settings** tab. Add a person (name, email, Admin or User, active). On History, **Mine only** starts off, so the log shows everyone. If Brian releases Jane’s kit, History shows **Claimed by Jane** and **Unclaimed by Brian**.
 
 **Reset sample data** on the sign-in page (or in Settings) puts the sample people, kits, and tasks back. Your sign-in lasts until you click **Sign out** or close the tab.
 
@@ -79,7 +80,7 @@ Node is only needed to run the checks, not to open the page.
 npm test
 ```
 
-That runs the checks in `tests/`. They cover: one open claim per kit per date, different dates, check-out freeing the kit, non-admins blocked with `FORBIDDEN`, a rejected sign-in, Pacific time labels, Admin/User role text, and hiding tasks whose Active flag is false.
+That runs the checks in `tests/`. They cover: one open claim per kit per date, different dates, check-out freeing the kit, who claimed and who unclaimed, any signed-in person reading the kit log, non-admins blocked with `FORBIDDEN`, a rejected sign-in, Pacific time labels, Admin/User role text, and hiding tasks whose Active flag is false.
 
 ## Assumptions
 
@@ -88,8 +89,9 @@ That runs the checks in `tests/`. They cover: one open claim per kit per date, d
 - A person can hold one open kit per date. After check-out, that kit can be claimed again the same day (a new log row).
 - Claim dates are Pacific calendar dates. The old prototype’s `toISOString()` date bug is not used.
 - The service should count completed tasks itself. Practice mode ignores a fake total sent by the browser.
-- History includes open check-ins (no check-out time yet) and finished ones.
-- An admin can release someone else’s kit from the checklist. The owner’s check-out dialog uses the exact sentence “Please ensure you have completed the task.”
+- History is an event log, newest first. A claim is a Claimed line. A check-out is a separate Unclaimed line with tasks completed. Open claims have no Unclaimed line yet.
+- **Mine only** starts on for a regular user and off for an admin. Anyone signed in can turn it off and filter by person, kit, and date.
+- An admin can release someone else’s kit from the checklist. History then shows the admin as the person who unclaimed it. Older rows with no checkout person show the claimant instead. The owner’s check-out dialog uses the exact sentence “Please ensure you have completed the task.”
 - New emails must end in `@centific.com`, except the shared `admin-drc` id.
 - The last active admin cannot be removed.
 - Month arrows move the calendar only. The selected day changes when you click a day, Today, Yesterday, or Last week.
