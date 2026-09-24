@@ -7,7 +7,7 @@ export function createPaBackend(flowUrl) {
       if (!url) {
         return {
           ok: false,
-          error: 'Power Automate mode is on, but no flow URL is set. Add config.local.js, or open this page with ?backend=mock.',
+          error: 'Power Automate mode is on, but no flow URL is set. Add config.local.json with the flow address.',
           code: 'NO_FLOW_URL',
         };
       }

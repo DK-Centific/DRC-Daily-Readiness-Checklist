@@ -66,7 +66,8 @@
   --filter-banner-border: #D0DCE8;
   --sheet-scrim: rgba(28, 37, 48, 0.35);
   --bottom-sheet-shadow: 0 -8px 32px rgba(28, 37, 48, 0.18);
-  --font: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  /* Device font. The page does not load a font from Google. */
+  --font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --ease: cubic-bezier(0.23, 1, 0.32, 1);
   --dur: 200ms;
   color-scheme: light;
@@ -230,6 +231,8 @@ button { cursor: pointer; }
 .title { font-size: 22px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.2; margin: 0; }
 .section { font-size: 15px; font-weight: 600; margin: 0; }
 .meta { font-size: 13px; font-weight: 500; color: var(--muted); margin: 0; }
+.spaced { margin-bottom: 16px; }
+.spaced-sm { margin-bottom: 8px; }
 .hint { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
 
 #shell { min-height: 100vh; display: flex; flex-direction: column; background: var(--canvas); }
