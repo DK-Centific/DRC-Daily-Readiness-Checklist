@@ -461,6 +461,29 @@ button:disabled, .primary:disabled {
   min-height: 1.2em;
 }
 
+.field-error {
+  margin: 0.25rem 0 0;
+  color: var(--err-ink);
+  font-size: 0.92rem;
+}
+
+.saving-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.spinner {
+  width: 0.95rem;
+  height: 0.95rem;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
 .filters .actions { display: flex; gap: 0.5rem; align-items: end; }
 
 .manage-head {
@@ -552,6 +575,7 @@ body.modal-open { overflow: hidden; }
 
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; scroll-behavior: auto !important; }
+  .spinner { animation: none; }
 }
 
 @media (forced-colors: active) {

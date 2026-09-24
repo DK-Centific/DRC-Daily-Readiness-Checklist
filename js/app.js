@@ -1,4 +1,15 @@
 import { createClient } from './api.js';
+import {
+  accessFromForm,
+  accessPayload,
+  blankAccess,
+  blankKit,
+  editorAfterSettingsRefresh,
+  kitFromForm,
+  kitPayload,
+  validateAccess,
+  validateKit,
+} from './editor-state.js';
 import { isAdminRole, isTaskVisible, roleLabel } from './flow-shape.js';
 import { historyEvents } from './history-events.js';
 import {
@@ -58,6 +69,7 @@ const state = {
   settingsError: '',
   settingsCode: '',
   settingsNotice: '',
+  formErrors: {},
   editor: null,
   modal: null,
   signingIn: false,
@@ -237,7 +249,40 @@ function syncModal() {
   }
 }
 
+function captureEditorFromDom() {
+  if (!state.editor) return;
+  const kitForm = document.getElementById('kit-form');
+  if (kitForm && state.editor.kind === 'kit') {
+    state.editor = kitFromForm(state.editor, new FormData(kitForm));
+  }
+  const accessForm = document.getElementById('access-form');
+  if (accessForm && state.editor.kind === 'access') {
+    state.editor = accessFromForm(state.editor, new FormData(accessForm));
+  }
+}
+
+function fieldError(id, message) {
+  if (!message) return '';
+  return `<p class="field-error" id="${id}-error">${esc(message)}</p>`;
+}
+
+function invalidAttr(id, message) {
+  return message ? `aria-invalid="true" aria-describedby="${id}-error"` : '';
+}
+
+function savingButton(label, pending) {
+  if (!pending) return label;
+  return '<span class="saving-label"><span class="spinner" aria-hidden="true"></span>Saving…</span>';
+}
+
+function showFormProblem(formId) {
+  const form = document.getElementById(formId);
+  form?.scrollIntoView({ block: 'nearest' });
+  form?.querySelector('[aria-invalid="true"]')?.focus();
+}
+
 function render() {
+  captureEditorFromDom();
   document.body.classList.toggle('modal-open', Boolean(state.modal));
   if (!state.ready) {
     app.innerHTML = '<main class="login-screen" id="main"><p>Loading checklist…</p></main>';
@@ -248,15 +293,11 @@ function render() {
     return;
   }
   const shell = document.getElementById('shell');
-  const typing = document.activeElement?.closest?.('#history-form, #access-form, #kit-form');
-  if (shell && typing && state.tab === 'history' && document.getElementById('history-results')) {
+  const typingHistory = document.activeElement?.closest?.('#history-form');
+  if (shell && typingHistory && state.tab === 'history' && document.getElementById('history-results')) {
     const note = document.getElementById('refresh-note');
     if (note) note.hidden = !isRefreshing();
     document.getElementById('history-results').innerHTML = historyResultsHtml();
-    syncModal();
-    return;
-  }
-  if (shell && typing) {
     syncModal();
     return;
   }
@@ -704,15 +745,18 @@ function renderAccessEditor() {
       </li>`;
   }).join('');
   const form = editing ? `
-    <form id="access-form" class="form-grid" method="post" action="#">
+    <form id="access-form" class="form-grid" method="post" action="#" novalidate>
+      ${fieldError('access-form', state.formErrors.form)}
       <input type="hidden" name="recordId" value="${editing.id ?? ''}">
       <div>
         <label for="person-name">Name</label>
-        <input id="person-name" name="name" type="text" required value="${esc(editing.name)}">
+        <input id="person-name" name="name" type="text" value="${esc(editing.name)}" ${invalidAttr('person-name', state.formErrors.name)}>
+        ${fieldError('person-name', state.formErrors.name)}
       </div>
       <div>
         <label for="person-email">Email</label>
-        <input id="person-email" name="email" type="text" required autocomplete="off" value="${esc(editing.email)}" placeholder="firstName.lastName@centific.com">
+        <input id="person-email" name="email" type="text" autocomplete="off" value="${esc(editing.email)}" placeholder="firstName.lastName@centific.com" ${invalidAttr('person-email', state.formErrors.email)}>
+        ${fieldError('person-email', state.formErrors.email)}
       </div>
       <div class="names">
         <div>
@@ -736,7 +780,7 @@ function renderAccessEditor() {
         <label for="person-active">Active</label>
       </div>
       <div class="quick">
-        <button class="primary" type="submit" ${state.pendingSave === 'access' ? 'disabled' : ''}>Save person</button>
+        <button class="primary" type="submit" ${state.pendingSave === 'access' ? 'disabled' : ''}>${savingButton('Save person', state.pendingSave === 'access')}</button>
         <button class="secondary" type="button" data-action="cancel-editor">Cancel</button>
       </div>
     </form>` : '';
@@ -771,15 +815,18 @@ function renderKitEditor() {
     </li>
   `).join('');
   const form = editing ? `
-    <form id="kit-form" class="form-grid" method="post" action="#">
+    <form id="kit-form" class="form-grid" method="post" action="#" novalidate>
+      ${fieldError('kit-form', state.formErrors.form)}
       <input type="hidden" name="recordId" value="${editing.id ?? ''}">
       <div>
         <label for="kit-name">Kit name</label>
-        <input id="kit-name" name="name" type="text" required value="${esc(editing.name)}">
+        <input id="kit-name" name="name" type="text" value="${esc(editing.name)}" ${invalidAttr('kit-name', state.formErrors.name)}>
+        ${fieldError('kit-name', state.formErrors.name)}
       </div>
       <div>
         <label for="kit-order">Sort order</label>
-        <input id="kit-order" name="sortOrder" type="number" value="${esc(editing.sortOrder)}">
+        <input id="kit-order" name="sortOrder" type="text" inputmode="numeric" value="${esc(editing.sortOrder)}" ${invalidAttr('kit-order', state.formErrors.sortOrder)}>
+        ${fieldError('kit-order', state.formErrors.sortOrder)}
       </div>
       <div>
         <label for="kit-notes">Notes</label>
@@ -790,7 +837,7 @@ function renderKitEditor() {
         <label for="kit-active">Active</label>
       </div>
       <div class="quick">
-        <button class="primary" type="submit" ${state.pendingSave === 'kit' ? 'disabled' : ''}>Save kit</button>
+        <button class="primary" type="submit" ${state.pendingSave === 'kit' ? 'disabled' : ''}>${savingButton('Save kit', state.pendingSave === 'kit')}</button>
         <button class="secondary" type="button" data-action="cancel-editor">Cancel</button>
       </div>
     </form>` : '';
@@ -1324,34 +1371,35 @@ async function refreshSettings() {
   state.settingsCode = '';
   if (state.tab === 'settings') render();
   const problems = [];
-  const [accessResult, kitResult] = await Promise.all([
-    refreshAccess().catch((error) => { problems.push(error); return null; }),
-    refreshKitList().catch((error) => { problems.push(error); return null; }),
-  ]);
-  if (serial !== settingsSerial || state.user?.email !== actor) return;
-  if (problems.length) {
-    state.settingsError = problems.map((error) => error.message).join(' ');
-    state.settingsCode = problems[0].code || '';
-  }
-  if (accessResult) state.access = accessResult;
-  if (kitResult) state.allKits = kitResult;
-  const openKitForm = state.openKitForm;
-  if (openKitForm) {
+  let openKitForm = false;
+  try {
+    const [accessResult, kitResult] = await Promise.all([
+      refreshAccess().catch((error) => { problems.push(error); return null; }),
+      refreshKitList().catch((error) => { problems.push(error); return null; }),
+    ]);
+    if (serial !== settingsSerial || state.user?.email !== actor) return;
+    if (problems.length) {
+      state.settingsError = problems.map((error) => error.message).join(' ');
+      state.settingsCode = problems[0].code || '';
+    }
+    if (accessResult) state.access = accessResult;
+    if (kitResult) state.allKits = kitResult;
+    openKitForm = Boolean(state.openKitForm);
     state.openKitForm = false;
-    state.editor = {
-      kind: 'kit',
-      id: null,
-      name: '',
-      sortOrder: state.allKits.length + 1,
-      notes: '',
-      active: true,
-    };
-  }
-  state.loading.settings = false;
-  if (state.tab === 'settings') render();
-  if (openKitForm) {
-    document.getElementById('kits-heading')?.scrollIntoView({ block: 'start' });
-    document.getElementById('kit-name')?.focus();
+    state.editor = editorAfterSettingsRefresh({
+      openKitForm,
+      editor: state.editor,
+      nextSortOrder: state.allKits.length + 1,
+    });
+  } finally {
+    if (serial === settingsSerial) {
+      state.loading.settings = false;
+      if (state.tab === 'settings' && state.user?.email === actor) render();
+      if (openKitForm) {
+        document.getElementById('kits-heading')?.scrollIntoView({ block: 'start' });
+        document.getElementById('kit-name')?.focus();
+      }
+    }
   }
 }
 
@@ -1431,101 +1479,100 @@ function resetDemo() {
   render();
 }
 
-function personFromForm(form) {
-  const data = new FormData(form);
-  return {
-    id: data.get('recordId') ? Number(data.get('recordId')) : undefined,
-    name: String(data.get('name') || '').trim(),
-    email: String(data.get('email') || '').trim(),
-    firstName: String(data.get('firstName') || '').trim(),
-    lastName: String(data.get('lastName') || '').trim(),
-    role: data.get('role'),
-    active: data.get('active') === 'on',
-  };
+function upsertRow(list, saved) {
+  if (!saved) return list;
+  const index = list.findIndex((row) => row.id === saved.id);
+  if (index >= 0) {
+    const next = list.slice();
+    next[index] = { ...list[index], ...saved };
+    return next;
+  }
+  return list.concat(saved);
 }
 
 async function saveAccess(form) {
-  const payload = personFromForm(form);
-  state.editor = { kind: 'access', ...payload, id: payload.id ?? null };
+  if (state.pendingSave) return;
+  captureEditorFromDom();
+  if (form) state.editor = accessFromForm(state.editor, new FormData(form));
   const me = state.access.find((person) => person.email === state.user.email);
-  if (me && payload.id === me.id && !payload.active) {
-    state.settingsError = 'You cannot turn off the account you are signed in with.';
-    state.settingsCode = '';
+  if (me && state.editor.id === me.id && !state.editor.active) {
+    state.formErrors = { form: 'You cannot turn off the account you are signed in with.' };
     render();
+    showFormProblem('access-form');
     return;
   }
-  const previous = cloneData(state.access);
-  const email = payload.email.toLowerCase();
-  if (payload.id) {
-    const row = state.access.find((person) => person.id === payload.id);
-    if (row) Object.assign(row, payload, { email });
-  } else {
-    state.access.push({ ...payload, id: `new-${Date.now()}`, email });
+  const errors = validateAccess(state.editor);
+  if (Object.keys(errors).length) {
+    state.formErrors = errors;
+    render();
+    showFormProblem('access-form');
+    return;
   }
-  state.editor = null;
+  const payload = accessPayload(state.editor);
+  state.formErrors = {};
   state.settingsError = '';
-  state.settingsNotice = 'Access list saved.';
+  state.openKitForm = false;
   state.pendingSave = 'access';
   render();
   try {
     const saved = await apiCall('upsertAccess', payload);
-    const temp = state.access.find((person) => String(person.id).startsWith('new-') || person.email === saved.email);
-    if (temp && saved) Object.assign(temp, saved);
+    state.access = upsertRow(state.access, saved);
+    state.editor = null;
     state.pendingSave = '';
+    state.settingsNotice = 'Access list saved.';
+    render();
     refreshAccess().catch(() => {});
   } catch (error) {
-    if (!isAbort(error)) {
-      state.access = previous;
-      state.settingsError = error.message;
-      state.settingsCode = error.code || '';
-      state.settingsNotice = '';
-      state.editor = { kind: 'access', ...payload, id: payload.id ?? null };
-    }
     state.pendingSave = '';
+    if (isAbort(error)) {
+      render();
+      return;
+    }
+    state.formErrors = { form: error.message };
+    state.settingsNotice = '';
+    render();
+    showFormProblem('access-form');
   }
-  render();
 }
 
 async function saveKit(form) {
-  const data = new FormData(form);
-  const payload = {
-    id: data.get('recordId') ? Number(data.get('recordId')) : undefined,
-    name: String(data.get('name') || '').trim(),
-    sortOrder: data.get('sortOrder') === '' ? undefined : Number(data.get('sortOrder')),
-    notes: String(data.get('notes') || ''),
-    active: data.get('active') === 'on',
-  };
-  const previous = cloneData(state.allKits);
-  if (payload.id) {
-    const row = state.allKits.find((kit) => kit.id === payload.id);
-    if (row) Object.assign(row, payload);
-  } else {
-    state.allKits.push({ ...payload, id: `new-${Date.now()}`, sortOrder: payload.sortOrder ?? state.allKits.length + 1 });
+  if (state.pendingSave) return;
+  captureEditorFromDom();
+  if (form) state.editor = kitFromForm(state.editor, new FormData(form));
+  const errors = validateKit(state.editor);
+  if (Object.keys(errors).length) {
+    state.formErrors = errors;
+    render();
+    showFormProblem('kit-form');
+    return;
   }
-  state.editor = null;
+  const payload = kitPayload(state.editor);
+  state.formErrors = {};
   state.settingsError = '';
-  state.settingsNotice = 'Kit list saved.';
+  state.openKitForm = false;
   state.pendingSave = 'kit';
-  state.kitsByDate.clear();
   render();
   try {
     const saved = await apiCall('upsertKit', payload);
-    const temp = state.allKits.find((kit) => String(kit.id).startsWith('new-') || kit.id === saved?.id);
-    if (temp && saved) Object.assign(temp, saved);
+    state.allKits = upsertRow(state.allKits, saved);
+    state.editor = null;
     state.pendingSave = '';
+    state.settingsNotice = 'Kit list saved.';
+    state.kitsByDate.clear();
+    render();
     refreshKitList().catch(() => {});
     refreshKits(state.date, { preferMine: false });
   } catch (error) {
-    if (!isAbort(error)) {
-      state.allKits = previous;
-      state.settingsError = error.message;
-      state.settingsCode = error.code || '';
-      state.settingsNotice = '';
-      state.editor = { kind: 'kit', ...payload, id: payload.id ?? null, sortOrder: payload.sortOrder ?? '' };
-    }
     state.pendingSave = '';
+    if (isAbort(error)) {
+      render();
+      return;
+    }
+    state.formErrors = { form: error.message };
+    state.settingsNotice = '';
+    render();
+    showFormProblem('kit-form');
   }
-  render();
 }
 
 async function toggleAccess(id) {
@@ -1637,8 +1684,10 @@ function onClick(event) {
     refreshHistory();
   } else if (action === 'refresh-tasks') {
     refreshTasks({ force: true });
-  } else if (action === 'add-access') {
-    state.editor = { kind: 'access', id: null, name: '', email: '', firstName: '', lastName: '', role: 'User', active: true };
+  }   else if (action === 'add-access') {
+    state.openKitForm = false;
+    state.editor = blankAccess();
+    state.formErrors = {};
     state.settingsNotice = '';
     render();
     document.getElementById('person-name')?.focus();
@@ -1646,11 +1695,14 @@ function onClick(event) {
     const person = state.access.find((row) => row.id === Number(button.dataset.id));
     if (!person) return;
     state.editor = { kind: 'access', ...person };
+    state.formErrors = {};
     render();
     document.getElementById('person-name')?.focus();
   } else if (action === 'toggle-access') toggleAccess(Number(button.dataset.id));
   else if (action === 'add-kit') {
-    state.editor = { kind: 'kit', id: null, name: '', sortOrder: state.allKits.length + 1, notes: '', active: true };
+    state.openKitForm = false;
+    state.editor = blankKit(state.allKits.length + 1);
+    state.formErrors = {};
     state.settingsNotice = '';
     render();
     document.getElementById('kit-name')?.focus();
@@ -1658,11 +1710,14 @@ function onClick(event) {
     const kit = state.allKits.find((row) => row.id === Number(button.dataset.id));
     if (!kit) return;
     state.editor = { kind: 'kit', ...kit };
+    state.formErrors = {};
     render();
     document.getElementById('kit-name')?.focus();
   } else if (action === 'toggle-kit') toggleKit(Number(button.dataset.id));
   else if (action === 'cancel-editor') {
+    state.openKitForm = false;
     state.editor = null;
+    state.formErrors = {};
     render();
   }
 }
@@ -1748,6 +1803,11 @@ function onKeyDown(event) {
 document.addEventListener('click', onClick);
 document.addEventListener('submit', onSubmit);
 document.addEventListener('change', onChange);
+document.addEventListener('input', (event) => {
+  const form = event.target?.closest?.('#kit-form, #access-form');
+  if (!form || !state.editor) return;
+  captureEditorFromDom();
+});
 document.addEventListener('keydown', onKeyDown);
 
 async function init() {
