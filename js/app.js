@@ -733,7 +733,6 @@ function renderChecklist() {
   const past = isPastDate();
   const mine = past ? null : state.kits.find((kit) => kit.claim && kit.claim.userEmail === state.user?.email);
   const step = mine ? 3 : 2;
-  const showKits = past || !mine || isAdmin();
   const main = `
     ${past ? renderPastBanner() : ''}
     ${stepRail(step, past ? formatMonthDay(state.date) : '')}
@@ -741,13 +740,10 @@ function renderChecklist() {
     ${banner('ok', state.message)}
     ${isAdmin() ? '' : `<p class="section-label">1 · Date</p>${renderDateSection()}`}
     ${mine ? renderSession(mine) : ''}
-    ${showKits ? `
-      <p class="section-label">2 · Kit${past ? ' (read-only)' : ''}</p>
-      ${banner('err', state.kitsError, state.kitsCode)}
-      ${state.kits.length ? renderKitTiles() : renderEmptyKits()}
-      ${past ? '<p class="note-readonly">Past date — view only. Check-in is disabled.</p>' : ''}
-      ${past || (mine && state.selectedKitId === mine.id) ? '' : renderCheckButton()}
-    ` : ''}
+    <p class="section-label">2 · Kit${past ? ' (read-only)' : ''}</p>
+    ${banner('err', state.kitsError, state.kitsCode)}
+    ${state.kits.length ? renderKitTiles() : renderEmptyKits()}
+    ${past ? '<p class="note-readonly">Past date — view only. Check-in is disabled.</p>' : ''}
     <p class="section-label">3 · Checklist</p>
     ${renderTasks()}
     ${mine ? renderPhoneBar(mine) : ''}`;
@@ -856,7 +852,9 @@ function renderKitTiles() {
         <span class="kit-meta">${esc(kitTileMeta(kit))}</span>
       </button>`;
     }
-    return `<div class="kit-slot">${tile}${renderKitReset(kit)}</div>`;
+    const selected = !past && kit.id === state.selectedKitId;
+    const actions = renderKitActions(kit);
+    return `<div class="kit-slot${selected ? ' selected' : ''}"><div class="kit-card">${tile}${actions}</div>${renderKitReset(kit)}</div>`;
   }).join('');
   return `<div class="kit-grid">${tiles}</div>`;
 }
@@ -893,24 +891,27 @@ function checkButtonState() {
   return { label: 'Check in', action: 'check-in', disabled: false, reason: 'Check-in locks this kit for other people on the selected date.' };
 }
 
-function renderCheckButton() {
-  if (!state.kits.length) return '';
+function renderKitActions(kit) {
+  if (isPastDate() || !kit) return '';
+  const selected = kit.id === state.selectedKitId;
+  const mine = Boolean(kit.claim && kit.claim.userEmail === state.user?.email);
+  const locked = Boolean(kit.claim && !mine);
+  if (mine) {
+    const pending = kit.claim.pending || state.pendingCheckOut;
+    return `<div class="kit-actions"><button type="button" class="btn btn-primary kit-action" id="check-kit-${kit.id}" data-action="check-out" data-id="${kit.id}" ${pending ? 'disabled' : ''}>Check out</button></div>`;
+  }
+  if (!selected) return '';
+  if (locked) {
+    if (!isAdmin()) return '';
+    const who = kit.claim.userName || kit.claim.userEmail;
+    return `<div class="kit-actions"><button type="button" class="btn btn-secondary kit-action" id="release-button" data-action="release" ${state.pendingCheckOut ? 'disabled' : ''}>Release this kit</button><p class="meta kit-action-reason">${esc(`${kit.name} is claimed by ${who} for this date.`)}</p></div>`;
+  }
   const button = checkButtonState();
-  const kit = selectedKit();
-  const claiming = button.action === 'check-in' && state.pendingCheckIn;
-  const label = claiming
-    ? `Claiming ${kit?.name || 'kit'}…`
-    : (button.action === 'check-in' && kit ? `Check in to ${kit.name}` : button.label);
-  const checkDisabled = button.disabled || claiming;
-  const release = button.release
-    ? `<button type="button" class="btn btn-secondary" id="release-button" data-action="release" ${state.pendingCheckOut ? 'disabled' : ''}>Release this kit</button>`
-    : '';
-  return `
-    <div class="check-in-row">
-      <button type="button" class="btn btn-primary" id="check-button" data-action="${button.action}" ${checkDisabled ? 'disabled' : ''}>${claiming ? '<span class="spinner" aria-hidden="true"></span>' : ''}${esc(label)}</button>
-      ${release}
-    </div>
-    <p class="meta">${esc(button.reason || '')}</p>`;
+  const claiming = state.pendingCheckIn;
+  const label = claiming ? `Claiming ${kit.name}…` : 'Check in';
+  const disabled = button.disabled || claiming;
+  const reason = button.reason ? `<p class="meta kit-action-reason">${esc(button.reason)}</p>` : '';
+  return `<div class="kit-actions"><button type="button" class="btn btn-primary kit-action" id="check-kit-${kit.id}" data-action="check-in" data-id="${kit.id}" ${disabled ? 'disabled' : ''}>${claiming ? '<span class="spinner" aria-hidden="true"></span>' : ''}${esc(label)}</button>${reason}</div>`;
 }
 
 function renderSession(kit) {
@@ -919,16 +920,12 @@ function renderSession(kit) {
   const total = state.tasks.length;
   const completed = state.tasks.filter((task) => done.has(task.id)).length;
   const width = total ? Math.round((completed / total) * 100) : 0;
-  const ready = total > 0 && completed === total;
   return `
     <div class="session-bar">
       <div class="session-info">
         <p class="session-title">${esc(kit.name)} <span class="badge badge-yours">Yours</span></p>
         <p class="session-meta">Checked in ${esc(formatPtTime(claim.checkInAt))} · <span class="tabular" id="task-progress">${completed} of ${total}</span> done</p>
         <div class="progress-track" aria-hidden="true"><div class="progress-fill" id="task-bar" data-width="${width}"></div></div>
-      </div>
-      <div class="session-actions">
-        <button type="button" class="btn ${ready ? 'btn-primary' : 'btn-secondary'}" id="check-button" data-action="check-out" ${claim.pending || state.pendingCheckOut ? 'disabled' : ''}>Check out</button>
       </div>
     </div>`;
 }
@@ -1551,16 +1548,20 @@ async function checkIn() {
   }
 }
 
-function openCheckout(type) {
-  const kit = selectedKit();
+function openCheckout(type, kitId) {
+  const named = kitId == null ? null : state.kits.find((row) => row.id === kitId);
+  const owned = state.kits.find((row) => row.claim && row.claim.userEmail === state.user?.email);
+  const kit = named || (type === 'checkout' ? owned : null) || selectedKit();
   if (!kit?.claim || kit.claim.pending || isPastDate()) return;
+  if (type === 'checkout' && kit.claim.userEmail !== state.user?.email && !isAdmin()) return;
   const phone = window.matchMedia('(max-width: 720px)').matches;
+  state.selectedKitId = kit.id;
   state.modal = {
     type,
     claimId: kit.claim.claimId,
     kitName: kit.name,
     completedTaskIds: kit.claim.completedTaskIds || [],
-    returnId: type === 'release' ? 'release-button' : (phone ? 'phone-check-out' : 'check-button'),
+    returnId: type === 'release' ? 'release-button' : (phone ? 'phone-check-out' : `check-kit-${kit.id}`),
   };
   render();
 }
@@ -2325,7 +2326,7 @@ function onClick(event) {
     state.settingsNotice = '';
     setTab('settings');
   } else if (action === 'check-in') checkIn();
-  else if (action === 'check-out') openCheckout('checkout');
+  else if (action === 'check-out') openCheckout('checkout', button.dataset.id ? Number(button.dataset.id) : null);
   else if (action === 'release') openCheckout('release');
   else if (action === 'reset-kit') openResetDay(Number(button.dataset.id));
   else if (action === 'reset-day') openResetDay(null);
