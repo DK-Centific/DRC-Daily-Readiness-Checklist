@@ -499,7 +499,7 @@ function finishPaint() {
 }
 
 function renderLogin() {
-  const practice = state.api?.mode !== 'pa';
+  const practice = state.config?.backend !== 'pa' && state.api?.mode !== 'pa';
   const demos = practice ? `
     <div class="demo">
       <p class="hint">Practice sign-in (sample people already on the access list):</p>

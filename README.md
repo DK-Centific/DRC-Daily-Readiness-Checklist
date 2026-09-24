@@ -2,7 +2,7 @@
 
 A checklist for claiming a kit, completing that day’s tasks, and checking the kit back in. People sign in with a Centific ID. The access list decides who can enter.
 
-The page is a static site. It can run on your computer now, and later on GitHub Pages. It does not have its own server. Data will live in SharePoint lists, reached through one Power Automate flow. Until that flow is ready, the page runs in **practice mode** with sample data stored in the browser.
+The page is a static site. It can run on your computer now, and it is ready to publish on Render. It does not have its own server. Data will live in SharePoint lists, reached through one Power Automate flow. Until that flow address is set, the page runs in **practice mode** with sample data stored in the browser.
 
 ## Try it on your computer
 
@@ -68,6 +68,24 @@ You can also force a mode in the address bar:
 To feel a slow connection, open [http://localhost:8790/?backend=mock&latency=3000](http://localhost:8790/?backend=mock&latency=3000). Tabs still switch right away and show **Refreshing…** while the sample data catches up. Add `&debug=1` and open the browser console to see each action and how many milliseconds it took.
 
 `config.local.js` is ignored by git. Do not commit a real flow URL or signature.
+
+When the page is connected to the flow (`backend: 'pa'`), the practice sign-in buttons are hidden. People type their Centific ID and click **Sign in**.
+
+## Put the page on Render
+
+The repo includes `render.yaml`. Render publishes a static site named **drc-daily-readiness**.
+
+1. Sign in at [render.com](https://render.com).
+2. Click **New**, then **Blueprint**.
+3. Choose this private repo. Render reads `render.yaml`.
+4. When it asks for **DRC_FLOW_URL**, paste the Power Automate flow address. Leave it blank only if you still want the practice page.
+5. Click **Apply**.
+
+The build command is `bash scripts/build.sh`. The published folder is `dist`.
+
+If **DRC_FLOW_URL** is set, the build writes `dist/config.local.js` with that address and turns on the real flow. That file is not committed. `index.html` and `config.local.js` are served with `Cache-Control: no-cache`, so a new flow address shows up on the next deploy.
+
+To change the address later: open the service, click **Environment**, edit **DRC_FLOW_URL**, and deploy again.
 
 The page sends `POST` JSON `{ "action", "actor", ... }` to `FLOW_URL`. The contract is in [docs/DRC_SPEC_AND_API_CONTRACT.md](docs/DRC_SPEC_AND_API_CONTRACT.md). Field names the page expects are in [docs/CLIENT_NOTES.md](docs/CLIENT_NOTES.md).
 
