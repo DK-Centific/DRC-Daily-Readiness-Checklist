@@ -194,15 +194,24 @@ export function renderActivityCalendar({
     </section>`;
 }
 
-export function renderDaySummary({ label, activity, loaded }) {
+/** Confirm copy before an admin clears one kit, or every kit, for a date. */
+export function resetDayConfirm({ kitLabel, dateLabel }) {
+  return `Clear all check-ins and check-outs for ${kitLabel} on ${dateLabel}? The kit stays in Settings.`;
+}
+
+export function renderDaySummary({ label, activity, loaded, resetAll = false, resetDisabled = false }) {
   const number = (value) => (loaded ? String(value || 0) : '–');
   const day = activity || emptyDay();
+  const reset = resetAll
+    ? `<div class="day-summary-actions"><button type="button" class="btn btn-secondary btn-sm" id="reset-day-all" data-action="reset-day" ${resetDisabled ? 'disabled' : ''}>Reset all kits for this date</button></div>`
+    : '';
   return `
     <section class="day-summary" aria-label="Day summary">
       <h3>Day summary · ${esc(label)}</h3>
       <div class="day-summary-row"><span>Claimed</span><span class="n-claimed tabular">${number(day.claimed)}</span></div>
       <div class="day-summary-row"><span>Checked out complete</span><span class="n-out tabular">${number(day.complete)}</span></div>
       <div class="day-summary-row"><span>Incomplete checkout</span><span class="n-inc tabular">${number(day.incomplete)}</span></div>
+      ${reset}
     </section>`;
 }
 

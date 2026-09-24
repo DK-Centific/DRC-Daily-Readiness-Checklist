@@ -18,7 +18,7 @@ Every action except `login` must reject an unknown or inactive actor with:
 { "ok": false, "error": "You don't have access. Ask a DRC admin.", "code": "NO_ACCESS" }
 ```
 
-Admin actions (`listAccess`, `upsertAccess`, `listKits`, `upsertKit`) reject a non-admin with code `FORBIDDEN`.
+Admin actions (`listAccess`, `upsertAccess`, `listKits`, `upsertKit`, `resetDay`) reject a non-admin with code `FORBIDDEN`.
 
 Use HTTP 200 for both `{ "ok": true }` and `{ "ok": false }`. Send `Access-Control-Allow-Origin: *`.
 
@@ -93,9 +93,11 @@ Every signed-in person can read the kit log for all users. `userEmail` keeps row
 
 `listKits` / `upsertKit`: `{ id, name, active, sortOrder, notes }`. `upsertKit` body: `{ id?, name, active, sortOrder, notes? }`. Include inactive kits in `listKits`. `getKits` hides them.
 
+`resetDay` body: `{ date, kitId? }`. `date` is the Pacific ClaimDate (`YYYY-MM-DD`). Delete DailyReadinessLog rows for that date. When `kitId` is present, delete only that kit’s rows for the date, both `Claimed` and `CheckedOut`. When `kitId` is omitted, delete every kit’s rows for that date. Do not change DRC_Kits, DRC_Access, or DailyReadinessTasks. Success data: `{ date, kitId: null or the kit id, removedCount }`. Missing or invalid `date` is `VALIDATION`. An unknown `kitId` is `NOT_FOUND`. After a reset, `getKits` for that date shows the kit as unclaimed (`claim` and `lastCheckedOut` null) and `getHistory` no longer returns the deleted rows. The live flow must ship this action before production use; the page already calls it.
+
 ## Codes the practice mode uses
 
-`NO_ACCESS`, `FORBIDDEN`, `KIT_CLAIMED`, `ALREADY_HAVE_CLAIM`, `NOT_OWNER`, `NOT_FOUND`, `NOT_OPEN`, `KIT_INACTIVE`, `INVALID`, `DUPLICATE_EMAIL`, `LAST_ADMIN`.
+`NO_ACCESS`, `FORBIDDEN`, `KIT_CLAIMED`, `ALREADY_HAVE_CLAIM`, `NOT_OWNER`, `NOT_FOUND`, `NOT_OPEN`, `KIT_INACTIVE`, `INVALID`, `VALIDATION`, `DUPLICATE_EMAIL`, `LAST_ADMIN`.
 
 The live flow uses `NO_ACCESS` for an unknown actor, `KIT_CLAIMED` when that kit already has an open claim on that Pacific date, and `FORBIDDEN` when a non-admin calls an admin action. Kit management (`listKits` / `upsertKit` with name, active, and sortOrder) is required. An empty kit list tells a regular person “No kits set up yet, ask a DRC admin” and sends an admin to Settings to add kits.
 

@@ -19,6 +19,7 @@ import {
   renderActivityCalendar,
   renderDateChip,
   renderDaySummary,
+  resetDayConfirm,
   renderFilterBanner,
   renderPlainMonth,
   renderWeekStrip,
@@ -99,6 +100,7 @@ const state = {
   signingIn: false,
   pendingCheckIn: false,
   pendingCheckOut: false,
+  pendingReset: false,
   pendingSave: '',
   pendingToggle: '',
   kitHold: 0,
@@ -639,9 +641,20 @@ function selectedDayActivity() {
   return { loaded, day: activityForDay(state.monthActivity[key], state.date) };
 }
 
+function adminDaySummary() {
+  const selected = selectedDayActivity();
+  const labelDate = state.date || pacificDate();
+  return renderDaySummary({
+    label: formatShortDay(labelDate),
+    activity: selected.day,
+    loaded: selected.loaded,
+    resetAll: true,
+    resetDisabled: state.pendingReset,
+  });
+}
+
 function renderAdminCalendar() {
   const model = monthModel();
-  const selected = selectedDayActivity();
   return `
     ${renderActivityCalendar({
       monthLabel: model.monthLabel,
@@ -652,11 +665,7 @@ function renderAdminCalendar() {
       loading: !model.loaded,
       weekdays: WEEKDAYS,
     })}
-    ${renderDaySummary({
-      label: formatShortDay(state.date || model.today),
-      activity: selected.day,
-      loaded: selected.loaded,
-    })}`;
+    ${adminDaySummary()}`;
 }
 
 function renderAdminWeek() {
@@ -675,7 +684,8 @@ function renderAdminWeek() {
     monthLabel: formatMonthShort(state.viewYear, state.viewMonth),
     expanded: state.adminMonthOpen,
   });
-  return state.adminMonthOpen ? `${strip}${renderAdminCalendar()}` : strip;
+  if (state.adminMonthOpen) return `${strip}${renderAdminCalendar()}`;
+  return `${strip}${adminDaySummary()}`;
 }
 
 function renderDateSection() {
@@ -799,32 +809,53 @@ function pastKitPresentation(kit) {
   };
 }
 
+function rowsForSelectedDate() {
+  if (!state.date) return [];
+  const parts = splitYmd(state.date);
+  const key = monthRange(parts.year, parts.month).key;
+  return (state.monthRows[key] || []).filter((row) => (row.claimDate || row.ClaimDate) === state.date);
+}
+
+function kitHasDayActivity(kit) {
+  if (!kit) return false;
+  if (kit.claim || kit.lastCheckedOut) return true;
+  return rowsForSelectedDate().some((row) => String(row.kitId ?? row.KitID) === String(kit.id));
+}
+
+function renderKitReset(kit) {
+  if (!isAdmin() || !state.date || !kitHasDayActivity(kit)) return '';
+  return `<button type="button" class="btn btn-secondary btn-sm kit-reset" id="reset-kit-${kit.id}" data-action="reset-kit" data-id="${kit.id}" ${state.pendingReset ? 'disabled' : ''}>Reset</button>`;
+}
+
 function renderKitTiles() {
   const past = isPastDate();
   const tiles = state.kits.map((kit) => {
+    let tile;
     if (past) {
       const view = pastKitPresentation(kit);
-      return `
+      tile = `
         <button type="button" class="kit-tile" disabled>
           <p class="kit-name">${esc(kit.name)}</p>
           <span class="badge ${view.badgeClass}">${esc(view.badge)}</span>
           <span class="kit-meta">${esc(view.meta)}</span>
         </button>`;
-    }
-    const claim = kit.claim;
-    const mine = claim && claim.userEmail === state.user.email;
-    const locked = Boolean(claim && !mine);
-    const selected = kit.id === state.selectedKitId;
-    let badge = '<span class="badge badge-available">Available</span>';
-    if (mine) badge = '<span class="badge badge-yours">Yours</span>';
-    else if (locked) badge = `<span class="badge badge-locked">${lockIcon()} Locked · ${esc(claim.userName || claim.userEmail)}</span>`;
-    const disabled = locked && !isAdmin();
-    return `
+    } else {
+      const claim = kit.claim;
+      const mine = claim && claim.userEmail === state.user.email;
+      const locked = Boolean(claim && !mine);
+      const selected = kit.id === state.selectedKitId;
+      let badge = '<span class="badge badge-available">Available</span>';
+      if (mine) badge = '<span class="badge badge-yours">Yours</span>';
+      else if (locked) badge = `<span class="badge badge-locked">${lockIcon()} Locked · ${esc(claim.userName || claim.userEmail)}</span>`;
+      const disabled = locked && !isAdmin();
+      tile = `
       <button type="button" class="kit-tile ${selected ? 'selected' : ''} ${locked ? 'locked' : ''}" data-action="select-kit" data-id="${kit.id}" ${disabled ? 'disabled' : ''} aria-pressed="${selected}">
         <p class="kit-name">${esc(kit.name)}</p>
         ${badge}
         <span class="kit-meta">${esc(kitTileMeta(kit))}</span>
       </button>`;
+    }
+    return `<div class="kit-slot">${tile}${renderKitReset(kit)}</div>`;
   }).join('');
   return `<div class="kit-grid">${tiles}</div>`;
 }
@@ -1204,6 +1235,23 @@ function renderKitEditor() {
 }
 
 function renderModal() {
+  if (state.modal.type === 'reset-day') {
+    const message = resetDayConfirm({
+      kitLabel: state.modal.kitName,
+      dateLabel: state.modal.dateLabel,
+    });
+    return `
+      <div class="overlay" id="backdrop">
+        <div class="dialog" id="dialog" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+          <h2 id="modal-title">Reset this date?</h2>
+          <p id="modal-body">${esc(message)}</p>
+          <div class="dialog-actions">
+            <button type="button" class="btn btn-secondary" id="modal-cancel" data-action="modal-cancel">Cancel</button>
+            <button type="button" class="btn btn-primary" id="modal-confirm" data-action="modal-confirm">Reset</button>
+          </div>
+        </div>
+      </div>`;
+  }
   const release = state.modal.type === 'release';
   if (release) {
     return `
@@ -1523,9 +1571,102 @@ function closeModal() {
   if (returnId) document.getElementById(returnId)?.focus();
 }
 
+function scrubKitDay(kit, kitId) {
+  if (kitId != null && String(kit.id) !== String(kitId)) return kit;
+  return { ...kit, claim: null, lastCheckedOut: null };
+}
+
+function forgetDayActivity(date, kitId) {
+  if (state.date === date) {
+    state.kits = state.kits.map((kit) => scrubKitDay(kit, kitId));
+    storeKits(date, state.kits);
+  } else if (state.kitsByDate.has(date)) {
+    state.kitsByDate.set(date, state.kitsByDate.get(date).map((kit) => scrubKitDay(kit, kitId)));
+  }
+  const parts = splitYmd(date);
+  const key = monthRange(parts.year, parts.month).key;
+  if (Array.isArray(state.monthRows[key])) {
+    state.monthRows[key] = state.monthRows[key].filter((row) => {
+      const day = row.claimDate || row.ClaimDate;
+      if (day !== date) return true;
+      if (kitId != null && String(row.kitId ?? row.KitID) !== String(kitId)) return true;
+      return false;
+    });
+    state.monthActivity[key] = activityFromRows(state.monthRows[key]);
+  } else if (state.monthActivity[key] && kitId == null) {
+    const next = { ...state.monthActivity[key] };
+    delete next[date];
+    state.monthActivity[key] = next;
+  }
+  state.history = state.history.filter((row) => {
+    const day = row.claimDate || row.ClaimDate;
+    if (day !== date) return true;
+    if (kitId != null && String(row.kitId ?? row.KitID) !== String(kitId)) return true;
+    return false;
+  });
+  state.historyCache.clear();
+}
+
+function openResetDay(kitId) {
+  if (!isAdmin() || !state.date || state.pendingReset) return;
+  let kitName = 'all kits';
+  let id = null;
+  if (kitId != null) {
+    const kit = state.kits.find((row) => String(row.id) === String(kitId));
+    if (!kit || !kitHasDayActivity(kit)) return;
+    kitName = kit.name;
+    id = kit.id;
+  }
+  state.modal = {
+    type: 'reset-day',
+    kitId: id,
+    kitName,
+    date: state.date,
+    dateLabel: formatShortDay(state.date),
+    returnId: id == null ? 'reset-day-all' : `reset-kit-${id}`,
+  };
+  render();
+}
+
+async function confirmResetDay(modal) {
+  if (!isAdmin()) {
+    state.modal = null;
+    render();
+    return;
+  }
+  const date = modal.date;
+  const kitId = modal.kitId;
+  const kitName = modal.kitName;
+  state.modal = null;
+  state.pendingReset = true;
+  clearPageError();
+  render();
+  try {
+    const params = { date };
+    if (kitId != null) params.kitId = kitId;
+    const data = await apiCall('resetDay', params);
+    forgetDayActivity(date, kitId);
+    invalidateMonthActivity();
+    const count = Number(data?.removedCount) || 0;
+    const noun = count === 1 ? 'check-in' : 'check-ins';
+    showToast('ok', `Cleared ${count} ${noun} for ${kitName} on ${formatShortDay(date)}.`);
+    if (state.date === date) refreshKits(date, { preferMine: false });
+    if (state.tab === 'history') refreshHistory();
+  } catch (error) {
+    if (!isAbort(error)) showToast('error', error.message || 'Could not reset that date.');
+  } finally {
+    state.pendingReset = false;
+    if (state.user) render();
+  }
+}
+
 async function confirmModal() {
   const modal = state.modal;
-  if (!modal || state.pendingCheckOut) return;
+  if (!modal || state.pendingCheckOut || state.pendingReset) return;
+  if (modal.type === 'reset-day') {
+    await confirmResetDay(modal);
+    return;
+  }
   const kit = state.kits.find((row) => row.claim?.claimId === modal.claimId) || selectedKit();
   if (!kit?.claim) {
     state.modal = null;
@@ -1925,6 +2066,7 @@ function signOut() {
   state.signingIn = false;
   state.pendingCheckIn = false;
   state.pendingCheckOut = false;
+  state.pendingReset = false;
   state.pendingSave = '';
   state.pendingToggle = '';
   state.kitHold = 0;
@@ -2184,6 +2326,8 @@ function onClick(event) {
   } else if (action === 'check-in') checkIn();
   else if (action === 'check-out') openCheckout('checkout');
   else if (action === 'release') openCheckout('release');
+  else if (action === 'reset-kit') openResetDay(Number(button.dataset.id));
+  else if (action === 'reset-day') openResetDay(null);
   else if (action === 'modal-cancel') closeModal();
   else if (action === 'modal-confirm') confirmModal();
   else if (action === 'clear-filters') {
