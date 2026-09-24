@@ -345,6 +345,108 @@ test('an admin can filter history by user, kit, and date', async () => {
   assert.equal(everyone.data.length, 2);
 });
 
+test('an admin can reset one kit for a date without changing the kit list', async () => {
+  const api = backend();
+  const kitsBefore = await api.call({ action: 'listKits', actor: BRIAN });
+  const tasksBefore = await api.call({ action: 'getTasks', actor: BRIAN });
+  const accessBefore = await api.call({ action: 'listAccess', actor: BRIAN });
+  const first = await api.call({ action: 'checkIn', actor: JANE, kitId: 1, date: DATE });
+  await api.call({
+    action: 'checkOut',
+    actor: JANE,
+    claimId: first.data.claimId,
+    completedTaskIds: [1],
+    tasksTotal: 4,
+  });
+  await api.call({ action: 'checkIn', actor: BRIAN, kitId: 1, date: DATE });
+  await api.call({ action: 'checkIn', actor: JANE, kitId: 2, date: DATE });
+  await api.call({ action: 'checkIn', actor: BRIAN, kitId: 1, date: OTHER_DATE });
+
+  const reset = await api.call({
+    action: 'resetDay',
+    actor: BRIAN,
+    date: DATE,
+    kitId: '1',
+  });
+  assert.equal(reset.ok, true);
+  assert.equal(reset.data.date, DATE);
+  assert.equal(reset.data.kitId, 1);
+  assert.equal(reset.data.removedCount, 2);
+
+  const kits = await api.call({ action: 'getKits', actor: JANE, date: DATE });
+  const kit1 = kits.data.find((row) => row.id === 1);
+  const kit2 = kits.data.find((row) => row.id === 2);
+  assert.equal(kit1.claim, null);
+  assert.equal(kit1.lastCheckedOut, null);
+  assert.equal(kit2.claim.userEmail, JANE);
+  assert.equal(kits.data.length, kitsBefore.data.filter((row) => row.active).length);
+
+  const history = await api.call({ action: 'getHistory', actor: BRIAN, from: DATE, to: DATE });
+  assert.equal(history.data.length, 1);
+  assert.equal(history.data[0].kitId, 2);
+  const otherDay = await api.call({ action: 'getHistory', actor: BRIAN, from: OTHER_DATE, to: OTHER_DATE });
+  assert.equal(otherDay.data.length, 1);
+  assert.equal(otherDay.data[0].kitId, 1);
+
+  const kitsAfter = await api.call({ action: 'listKits', actor: BRIAN });
+  const tasksAfter = await api.call({ action: 'getTasks', actor: BRIAN });
+  const accessAfter = await api.call({ action: 'listAccess', actor: BRIAN });
+  assert.deepEqual(kitsAfter.data, kitsBefore.data);
+  assert.deepEqual(tasksAfter.data, tasksBefore.data);
+  assert.deepEqual(accessAfter.data, accessBefore.data);
+
+  const again = await api.call({ action: 'checkIn', actor: BRIAN, kitId: 1, date: DATE });
+  assert.equal(again.ok, true);
+});
+
+test('an admin can reset every kit for a date', async () => {
+  const api = backend();
+  const kitsBefore = await api.call({ action: 'listKits', actor: BRIAN });
+  await api.call({ action: 'checkIn', actor: JANE, kitId: 1, date: DATE });
+  const kit2 = await api.call({ action: 'checkIn', actor: BRIAN, kitId: 2, date: DATE });
+  await api.call({
+    action: 'checkOut',
+    actor: BRIAN,
+    claimId: kit2.data.claimId,
+    completedTaskIds: [1],
+    tasksTotal: 4,
+  });
+  await api.call({ action: 'checkIn', actor: JANE, kitId: 3, date: OTHER_DATE });
+
+  const reset = await api.call({ action: 'resetDay', actor: 'admin-drc', date: DATE });
+  assert.equal(reset.ok, true);
+  assert.equal(reset.data.date, DATE);
+  assert.equal(reset.data.kitId, null);
+  assert.equal(reset.data.removedCount, 2);
+
+  const kits = await api.call({ action: 'getKits', actor: JANE, date: DATE });
+  assert.ok(kits.data.every((row) => row.claim === null && row.lastCheckedOut === null));
+  const history = await api.call({ action: 'getHistory', actor: BRIAN, from: DATE, to: DATE });
+  assert.equal(history.data.length, 0);
+  const otherDay = await api.call({ action: 'getHistory', actor: BRIAN, from: OTHER_DATE, to: OTHER_DATE });
+  assert.equal(otherDay.data.length, 1);
+  const kitsAfter = await api.call({ action: 'listKits', actor: BRIAN });
+  assert.deepEqual(kitsAfter.data, kitsBefore.data);
+});
+
+test('resetDay is admin only and rejects a bad date or unknown kit', async () => {
+  const api = backend();
+  await api.call({ action: 'checkIn', actor: JANE, kitId: 1, date: DATE });
+  const forbidden = await api.call({ action: 'resetDay', actor: JANE, date: DATE, kitId: 1 });
+  assert.equal(forbidden.ok, false);
+  assert.equal(forbidden.code, 'FORBIDDEN');
+  const missing = await api.call({ action: 'resetDay', actor: BRIAN });
+  assert.equal(missing.code, 'VALIDATION');
+  const bad = await api.call({ action: 'resetDay', actor: BRIAN, date: '2026-02-31' });
+  assert.equal(bad.code, 'VALIDATION');
+  const unknown = await api.call({ action: 'resetDay', actor: BRIAN, date: DATE, kitId: 99 });
+  assert.equal(unknown.code, 'NOT_FOUND');
+  const history = await api.call({ action: 'getHistory', actor: BRIAN, from: DATE, to: DATE });
+  assert.equal(history.data.length, 1);
+  const kits = await api.call({ action: 'listKits', actor: BRIAN });
+  assert.equal(kits.data.length, 4);
+});
+
 test('admin can add and edit an access row, and kit management updates the kit list', async () => {
   const api = backend();
   const added = await api.call({

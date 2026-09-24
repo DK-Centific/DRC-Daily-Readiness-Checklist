@@ -1,5 +1,24 @@
 /** Turn claim rows into a newest-first claimed / unclaimed log. */
 
+import { normalizeHistoryRows } from './flow-shape.js';
+
+function rowEmails(row) {
+  return [row?.userEmail, row?.UserEmail, row?.checkedOutByEmail, row?.CheckedOutByEmail]
+    .map((value) => String(value || '').trim().toLowerCase())
+    .filter(Boolean);
+}
+
+/** Date filter uses claimDate. Normalize live rows before calling this. */
+export function rowMatchesFilters(row, filters = {}) {
+  const email = String(filters.userEmail || '').trim().toLowerCase();
+  if (email && !rowEmails(row).includes(email)) return false;
+  if (filters.kitId != null && filters.kitId !== '' && String(row?.kitId ?? '') !== String(filters.kitId)) return false;
+  const claimDate = String(row?.claimDate || '');
+  if (filters.from && claimDate < String(filters.from)) return false;
+  if (filters.to && claimDate > String(filters.to)) return false;
+  return true;
+}
+
 function text(value) {
   return value == null ? '' : String(value).trim();
 }
@@ -20,7 +39,7 @@ export function unclaimActor(row) {
 
 export function historyEvents(rows) {
   const events = [];
-  for (const row of rows || []) {
+  for (const row of normalizeHistoryRows(rows) || []) {
     events.push({
       id: `${row.id}-claimed`,
       kind: 'claimed',

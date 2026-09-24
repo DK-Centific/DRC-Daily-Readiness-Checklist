@@ -8,6 +8,7 @@ import {
   renderActivityCalendar,
   renderDateChip,
   renderDaySummary,
+  resetDayConfirm,
   renderFilterBanner,
   renderPlainMonth,
   renderWeekStrip,
@@ -159,6 +160,19 @@ test('the phone week strip and the past-day banner use the chosen copy', () => {
   assert.match(summary, /Day summary · Wed, Sep 23/);
   assert.match(summary, /n-claimed tabular">1/);
   assert.match(summary, /n-inc tabular">0/);
+
+  assert.equal(summary.includes('Reset all kits'), false);
+
+  const withReset = renderDaySummary({
+    label: 'Wed, Sep 23',
+    loaded: true,
+    activity: { claimed: 1, complete: 0, incomplete: 0, open: 1 },
+    resetAll: true,
+  });
+  assert.match(withReset, /Reset all kits for this date/);
+  assert.match(withReset, /data-action="reset-day"/);
+  assert.equal(resetDayConfirm({ kitLabel: 'Kit 01', dateLabel: 'Wed, Sep 23' }), 'Clear all check-ins and check-outs for Kit 01 on Wed, Sep 23? The kit stays in Settings.');
+  assert.equal(resetDayConfirm({ kitLabel: 'all kits', dateLabel: 'Wed, Sep 23' }), 'Clear all check-ins and check-outs for all kits on Wed, Sep 23? The kit stays in Settings.');
 
   const banner = renderFilterBanner({ label: 'Tue, Sep 22', kitsLabel: '4', claimedLabel: '3' });
   assert.match(banner, /Showing <strong>Tue, Sep 22<\/strong> · 4 kits · 3 claimed/);

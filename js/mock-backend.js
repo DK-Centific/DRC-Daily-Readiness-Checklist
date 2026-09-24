@@ -427,6 +427,36 @@ function upsertAccess(db, write, actor, params) {
   return ok(publicAccess(row));
 }
 
+function kitIdProvided(value) {
+  return value !== undefined && value !== null && value !== '';
+}
+
+function resetDay(db, write, actor, params) {
+  const auth = requireAdmin(db, actor);
+  if (!auth.user) return auth;
+  if (!isValidDate(params.date)) return fail('Choose a valid date.', 'VALIDATION');
+  let kitId = null;
+  if (kitIdProvided(params.kitId)) {
+    const id = asId(params.kitId);
+    const kit = id === null ? null : db.kits.find((row) => row.id === id);
+    if (!kit) return fail('That kit was not found.', 'NOT_FOUND');
+    kitId = kit.id;
+  }
+  const before = db.logs.length;
+  db.logs = db.logs.filter((row) => {
+    if (row.claimDate !== params.date) return true;
+    if (kitId !== null && row.kitId !== kitId) return true;
+    return false;
+  });
+  const removedCount = before - db.logs.length;
+  if (removedCount) write(db);
+  return ok({
+    date: params.date,
+    kitId,
+    removedCount,
+  });
+}
+
 function listKits(db, actor) {
   const auth = requireAdmin(db, actor);
   if (!auth.user) return auth;
@@ -496,6 +526,8 @@ function dispatch(db, write, body) {
       return listKits(db, actor);
     case 'upsertKit':
       return upsertKit(db, write, actor, params);
+    case 'resetDay':
+      return resetDay(db, write, actor, params);
     default:
       return fail('Unknown action.', 'INVALID');
   }

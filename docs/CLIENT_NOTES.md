@@ -18,7 +18,7 @@ Every action except `login` must reject an unknown or inactive actor with:
 { "ok": false, "error": "You don't have access. Ask a DRC admin.", "code": "NO_ACCESS" }
 ```
 
-Admin actions (`listAccess`, `upsertAccess`, `listKits`, `upsertKit`) reject a non-admin with code `FORBIDDEN`.
+Admin actions (`listAccess`, `upsertAccess`, `listKits`, `upsertKit`, `resetDay`) reject a non-admin with code `FORBIDDEN`.
 
 Use HTTP 200 for both `{ "ok": true }` and `{ "ok": false }`. Send `Access-Control-Allow-Origin: *`.
 
@@ -85,6 +85,8 @@ Errors: `KIT_CLAIMED` (someone already holds that kit that day), `ALREADY_HAVE_C
 
 `checkedOutByEmail` and `checkedOutByName` are blank until check-out. After check-out they are the person who released the kit. Older rows may omit them; the page then shows the claimant as the person who unclaimed. `CheckedOutByEmail` / `CheckedOutByName` are accepted too.
 
+The live log may send `date` instead of `claimDate`, and `claimId` instead of `id` (`Date` and `ClaimId` are accepted too). On every `getHistory` result the page copies those onto `claimDate` and `id` when the page fields are missing, before History filters or calendar marks read the rows. History and the calendar marks read `claimDate` and `id`.
+
 Every signed-in person can read the kit log for all users. `userEmail` keeps rows where that person claimed the kit or released it. `from` and `to` are inclusive `YYYY-MM-DD` claim dates. `kitId` is optional. The History tab always sends `from` and `to`. It starts on today. **7 days** asks for the last 7 days. **All** starts with the last 14 days, and **Load older** moves `from` back another 14 days. The page sends `userEmail` of the signed-in person when **Mine** is on (on by default for Staff, off for an admin). The on-screen role **Staff** is stored as `User`. If a live flow still returns only that person’s own rows, the page shows what came back and, when they asked for someone else and nothing matched, a short note that the log may still be limited to them.
 
 `listAccess` data: `[{ id, name, email, firstName, lastName, role, active }]` including inactive people.
@@ -93,9 +95,11 @@ Every signed-in person can read the kit log for all users. `userEmail` keeps row
 
 `listKits` / `upsertKit`: `{ id, name, active, sortOrder, notes }`. `upsertKit` body: `{ id?, name, active, sortOrder, notes? }`. Include inactive kits in `listKits`. `getKits` hides them.
 
+`resetDay` body: `{ date, kitId? }`. `date` is the Pacific ClaimDate (`YYYY-MM-DD`). Delete DailyReadinessLog rows for that date. When `kitId` is present, delete only that kit’s rows for the date, both `Claimed` and `CheckedOut`. When `kitId` is omitted, delete every kit’s rows for that date. Do not change DRC_Kits, DRC_Access, or DailyReadinessTasks. Success data: `{ date, kitId: null or the kit id, removedCount }`. Missing or invalid `date` is `VALIDATION`. An unknown `kitId` is `NOT_FOUND`. After a reset, `getKits` for that date shows the kit as unclaimed (`claim` and `lastCheckedOut` null) and `getHistory` no longer returns the deleted rows. The live flow already supports `resetDay` on the same checklist address.
+
 ## Codes the practice mode uses
 
-`NO_ACCESS`, `FORBIDDEN`, `KIT_CLAIMED`, `ALREADY_HAVE_CLAIM`, `NOT_OWNER`, `NOT_FOUND`, `NOT_OPEN`, `KIT_INACTIVE`, `INVALID`, `DUPLICATE_EMAIL`, `LAST_ADMIN`.
+`NO_ACCESS`, `FORBIDDEN`, `KIT_CLAIMED`, `ALREADY_HAVE_CLAIM`, `NOT_OWNER`, `NOT_FOUND`, `NOT_OPEN`, `KIT_INACTIVE`, `INVALID`, `VALIDATION`, `DUPLICATE_EMAIL`, `LAST_ADMIN`.
 
 The live flow uses `NO_ACCESS` for an unknown actor, `KIT_CLAIMED` when that kit already has an open claim on that Pacific date, and `FORBIDDEN` when a non-admin calls an admin action. Kit management (`listKits` / `upsertKit` with name, active, and sortOrder) is required. An empty kit list tells a regular person “No kits set up yet, ask a DRC admin” and sends an admin to Settings to add kits.
 

@@ -41,6 +41,7 @@ All times stored in UTC ISO-8601; UI displays America/Los_Angeles ("PT").
 - Check-in: claims selected kit for selected date -> message "Kit X claimed on <date> at <time PT>" ; kit shows lock icon for others; others can't claim it that day.
 - While claimed by me: task list (from DailyReadinessTasks, ordered by TaskOrder) is shown with checkboxes; toggles persist to CompletedTaskIDs.
 - Check-out: confirm modal "Please ensure you have completed the task." with [Cancel] [Confirm]. Confirm sets CheckOutAt, Status=CheckedOut, TasksCompleted/TasksTotal, and frees the kit so another user can claim it for that same date (one OPEN claim per kit per date; a new claim row may follow a CheckedOut one). A user may hold at most one open claim per date.
+- Admin reset day: an admin can clear DailyReadinessLog rows for one kit on a ClaimDate, or for every kit on that date, without changing DRC_Kits. The kit stays in Settings and can be claimed again for that date.
 - History tab: my check-ins/outs (admin: everyone, filterable by user/kit/date) with kit, date, check-in PT, check-out PT, tasks completed X/Y.
 - Admin view: banner "Admin View"; extra Settings tab to list/add/edit/deactivate access entries (Name, Email, Role, Active). Optional: manage kits there too.
 
@@ -62,6 +63,9 @@ Actions:
 - listAccess {} (admin) -> data: [{id, name, email, firstName, lastName, role, active}]
 - upsertAccess {id?, name, email, firstName?, lastName?, role, active} (admin)
 - listKits / upsertKit {id?, name, active, sortOrder} (admin, optional)
+- resetDay {date, kitId?} (admin) -> data: {date, kitId: null|<id>, removedCount}
+  `date` is required (Pacific ClaimDate, YYYY-MM-DD). If `kitId` is set, delete every DailyReadinessLog row for that ClaimDate and KitID (Status Claimed and CheckedOut). If `kitId` is omitted, delete every DailyReadinessLog row for that ClaimDate. Never change DRC_Kits, DRC_Access, or DailyReadinessTasks.
+  Errors: FORBIDDEN (actor is not an admin), VALIDATION (date missing or not YYYY-MM-DD), NOT_FOUND (kitId does not match a kit).
 
 ## Security note
 This is an allowlist sign-in (email checked against DRC_Access), not Microsoft SSO/password auth. Flow URL (sig) is a secret-ish token: keep it in a non-committed config.local.json or inject at deploy. The browser still receives that address in this version. The follow-up that holds it on the server is docs/SECURITY-PROXY-PLAN.md. Upgrade path: that same-origin proxy, then MSAL/Entra ID sign-in.

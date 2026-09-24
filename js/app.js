@@ -10,7 +10,7 @@ import {
   validateAccess,
   validateKit,
 } from './editor-state.js';
-import { isAdminRole, isTaskVisible, roleLabel } from './flow-shape.js';
+import { isAdminRole, isTaskVisible, normalizeHistoryRows, roleLabel } from './flow-shape.js';
 import {
   activityForDay,
   activityFromRows,
@@ -19,13 +19,14 @@ import {
   renderActivityCalendar,
   renderDateChip,
   renderDaySummary,
+  resetDayConfirm,
   renderFilterBanner,
   renderPlainMonth,
   renderWeekStrip,
   weekDates,
 } from './calendar-view.js';
 import { groupTasks, taskHint } from './task-groups.js';
-import { historyEvents } from './history-events.js';
+import { historyEvents, rowMatchesFilters as historyRowMatches } from './history-events.js';
 import { applyTheme, saveThemeChoice, watchSystemTheme } from './theme.js';
 import { mergeRuntimeConfig, parseLegacyConfigJs, parseLocalConfig } from './config-load.js';
 import { acceptedLoginUser, planSessionRestore } from './session-restore.js';
@@ -99,6 +100,7 @@ const state = {
   signingIn: false,
   pendingCheckIn: false,
   pendingCheckOut: false,
+  pendingReset: false,
   pendingSave: '',
   pendingToggle: '',
   kitHold: 0,
@@ -220,6 +222,7 @@ async function apiCall(action, params = {}, options = {}) {
     error.code = result && result.code;
     throw error;
   }
+  if (action === 'getHistory') return normalizeHistoryRows(result.data);
   return result.data;
 }
 
@@ -639,9 +642,20 @@ function selectedDayActivity() {
   return { loaded, day: activityForDay(state.monthActivity[key], state.date) };
 }
 
+function adminDaySummary() {
+  const selected = selectedDayActivity();
+  const labelDate = state.date || pacificDate();
+  return renderDaySummary({
+    label: formatShortDay(labelDate),
+    activity: selected.day,
+    loaded: selected.loaded,
+    resetAll: true,
+    resetDisabled: state.pendingReset,
+  });
+}
+
 function renderAdminCalendar() {
   const model = monthModel();
-  const selected = selectedDayActivity();
   return `
     ${renderActivityCalendar({
       monthLabel: model.monthLabel,
@@ -652,11 +666,7 @@ function renderAdminCalendar() {
       loading: !model.loaded,
       weekdays: WEEKDAYS,
     })}
-    ${renderDaySummary({
-      label: formatShortDay(state.date || model.today),
-      activity: selected.day,
-      loaded: selected.loaded,
-    })}`;
+    ${adminDaySummary()}`;
 }
 
 function renderAdminWeek() {
@@ -675,7 +685,8 @@ function renderAdminWeek() {
     monthLabel: formatMonthShort(state.viewYear, state.viewMonth),
     expanded: state.adminMonthOpen,
   });
-  return state.adminMonthOpen ? `${strip}${renderAdminCalendar()}` : strip;
+  if (state.adminMonthOpen) return `${strip}${renderAdminCalendar()}`;
+  return `${strip}${adminDaySummary()}`;
 }
 
 function renderDateSection() {
@@ -722,7 +733,6 @@ function renderChecklist() {
   const past = isPastDate();
   const mine = past ? null : state.kits.find((kit) => kit.claim && kit.claim.userEmail === state.user?.email);
   const step = mine ? 3 : 2;
-  const showKits = past || !mine || isAdmin();
   const main = `
     ${past ? renderPastBanner() : ''}
     ${stepRail(step, past ? formatMonthDay(state.date) : '')}
@@ -730,13 +740,10 @@ function renderChecklist() {
     ${banner('ok', state.message)}
     ${isAdmin() ? '' : `<p class="section-label">1 · Date</p>${renderDateSection()}`}
     ${mine ? renderSession(mine) : ''}
-    ${showKits ? `
-      <p class="section-label">2 · Kit${past ? ' (read-only)' : ''}</p>
-      ${banner('err', state.kitsError, state.kitsCode)}
-      ${state.kits.length ? renderKitTiles() : renderEmptyKits()}
-      ${past ? '<p class="note-readonly">Past date — view only. Check-in is disabled.</p>' : ''}
-      ${past || (mine && state.selectedKitId === mine.id) ? '' : renderCheckButton()}
-    ` : ''}
+    <p class="section-label">2 · Kit${past ? ' (read-only)' : ''}</p>
+    ${banner('err', state.kitsError, state.kitsCode)}
+    ${state.kits.length ? renderKitTiles() : renderEmptyKits()}
+    ${past ? '<p class="note-readonly">Past date — view only. Check-in is disabled.</p>' : ''}
     <p class="section-label">3 · Checklist</p>
     ${renderTasks()}
     ${mine ? renderPhoneBar(mine) : ''}`;
@@ -799,32 +806,55 @@ function pastKitPresentation(kit) {
   };
 }
 
+function rowsForSelectedDate() {
+  if (!state.date) return [];
+  const parts = splitYmd(state.date);
+  const key = monthRange(parts.year, parts.month).key;
+  return (state.monthRows[key] || []).filter((row) => (row.claimDate || row.ClaimDate) === state.date);
+}
+
+function kitHasDayActivity(kit) {
+  if (!kit) return false;
+  if (kit.claim || kit.lastCheckedOut) return true;
+  return rowsForSelectedDate().some((row) => String(row.kitId ?? row.KitID) === String(kit.id));
+}
+
+function renderKitReset(kit) {
+  if (!isAdmin() || !state.date || !kitHasDayActivity(kit)) return '';
+  return `<button type="button" class="btn btn-secondary btn-sm kit-reset" id="reset-kit-${kit.id}" data-action="reset-kit" data-id="${kit.id}" ${state.pendingReset ? 'disabled' : ''}>Reset</button>`;
+}
+
 function renderKitTiles() {
   const past = isPastDate();
   const tiles = state.kits.map((kit) => {
+    let tile;
     if (past) {
       const view = pastKitPresentation(kit);
-      return `
+      tile = `
         <button type="button" class="kit-tile" disabled>
           <p class="kit-name">${esc(kit.name)}</p>
           <span class="badge ${view.badgeClass}">${esc(view.badge)}</span>
           <span class="kit-meta">${esc(view.meta)}</span>
         </button>`;
-    }
-    const claim = kit.claim;
-    const mine = claim && claim.userEmail === state.user.email;
-    const locked = Boolean(claim && !mine);
-    const selected = kit.id === state.selectedKitId;
-    let badge = '<span class="badge badge-available">Available</span>';
-    if (mine) badge = '<span class="badge badge-yours">Yours</span>';
-    else if (locked) badge = `<span class="badge badge-locked">${lockIcon()} Locked · ${esc(claim.userName || claim.userEmail)}</span>`;
-    const disabled = locked && !isAdmin();
-    return `
+    } else {
+      const claim = kit.claim;
+      const mine = claim && claim.userEmail === state.user.email;
+      const locked = Boolean(claim && !mine);
+      const selected = kit.id === state.selectedKitId;
+      let badge = '<span class="badge badge-available">Available</span>';
+      if (mine) badge = '<span class="badge badge-yours">Yours</span>';
+      else if (locked) badge = `<span class="badge badge-locked">${lockIcon()} Locked · ${esc(claim.userName || claim.userEmail)}</span>`;
+      const disabled = locked && !isAdmin();
+      tile = `
       <button type="button" class="kit-tile ${selected ? 'selected' : ''} ${locked ? 'locked' : ''}" data-action="select-kit" data-id="${kit.id}" ${disabled ? 'disabled' : ''} aria-pressed="${selected}">
         <p class="kit-name">${esc(kit.name)}</p>
         ${badge}
         <span class="kit-meta">${esc(kitTileMeta(kit))}</span>
       </button>`;
+    }
+    const selected = !past && kit.id === state.selectedKitId;
+    const actions = renderKitActions(kit);
+    return `<div class="kit-slot${selected ? ' selected' : ''}"><div class="kit-card">${tile}${actions}</div>${renderKitReset(kit)}</div>`;
   }).join('');
   return `<div class="kit-grid">${tiles}</div>`;
 }
@@ -861,24 +891,27 @@ function checkButtonState() {
   return { label: 'Check in', action: 'check-in', disabled: false, reason: 'Check-in locks this kit for other people on the selected date.' };
 }
 
-function renderCheckButton() {
-  if (!state.kits.length) return '';
+function renderKitActions(kit) {
+  if (isPastDate() || !kit) return '';
+  const selected = kit.id === state.selectedKitId;
+  const mine = Boolean(kit.claim && kit.claim.userEmail === state.user?.email);
+  const locked = Boolean(kit.claim && !mine);
+  if (mine) {
+    const pending = kit.claim.pending || state.pendingCheckOut;
+    return `<div class="kit-actions"><button type="button" class="btn btn-primary kit-action" id="check-kit-${kit.id}" data-action="check-out" data-id="${kit.id}" ${pending ? 'disabled' : ''}>Check out</button></div>`;
+  }
+  if (!selected) return '';
+  if (locked) {
+    if (!isAdmin()) return '';
+    const who = kit.claim.userName || kit.claim.userEmail;
+    return `<div class="kit-actions"><button type="button" class="btn btn-secondary kit-action" id="release-button" data-action="release" ${state.pendingCheckOut ? 'disabled' : ''}>Release this kit</button><p class="meta kit-action-reason">${esc(`${kit.name} is claimed by ${who} for this date.`)}</p></div>`;
+  }
   const button = checkButtonState();
-  const kit = selectedKit();
-  const claiming = button.action === 'check-in' && state.pendingCheckIn;
-  const label = claiming
-    ? `Claiming ${kit?.name || 'kit'}…`
-    : (button.action === 'check-in' && kit ? `Check in to ${kit.name}` : button.label);
-  const checkDisabled = button.disabled || claiming;
-  const release = button.release
-    ? `<button type="button" class="btn btn-secondary" id="release-button" data-action="release" ${state.pendingCheckOut ? 'disabled' : ''}>Release this kit</button>`
-    : '';
-  return `
-    <div class="check-in-row">
-      <button type="button" class="btn btn-primary" id="check-button" data-action="${button.action}" ${checkDisabled ? 'disabled' : ''}>${claiming ? '<span class="spinner" aria-hidden="true"></span>' : ''}${esc(label)}</button>
-      ${release}
-    </div>
-    <p class="meta">${esc(button.reason || '')}</p>`;
+  const claiming = state.pendingCheckIn;
+  const label = claiming ? `Claiming ${kit.name}…` : 'Check in';
+  const disabled = button.disabled || claiming;
+  const reason = button.reason ? `<p class="meta kit-action-reason">${esc(button.reason)}</p>` : '';
+  return `<div class="kit-actions"><button type="button" class="btn btn-primary kit-action" id="check-kit-${kit.id}" data-action="check-in" data-id="${kit.id}" ${disabled ? 'disabled' : ''}>${claiming ? '<span class="spinner" aria-hidden="true"></span>' : ''}${esc(label)}</button>${reason}</div>`;
 }
 
 function renderSession(kit) {
@@ -887,16 +920,12 @@ function renderSession(kit) {
   const total = state.tasks.length;
   const completed = state.tasks.filter((task) => done.has(task.id)).length;
   const width = total ? Math.round((completed / total) * 100) : 0;
-  const ready = total > 0 && completed === total;
   return `
     <div class="session-bar">
       <div class="session-info">
         <p class="session-title">${esc(kit.name)} <span class="badge badge-yours">Yours</span></p>
         <p class="session-meta">Checked in ${esc(formatPtTime(claim.checkInAt))} · <span class="tabular" id="task-progress">${completed} of ${total}</span> done</p>
         <div class="progress-track" aria-hidden="true"><div class="progress-fill" id="task-bar" data-width="${width}"></div></div>
-      </div>
-      <div class="session-actions">
-        <button type="button" class="btn ${ready ? 'btn-primary' : 'btn-secondary'}" id="check-button" data-action="check-out" ${claim.pending || state.pendingCheckOut ? 'disabled' : ''}>Check out</button>
       </div>
     </div>`;
 }
@@ -1204,6 +1233,23 @@ function renderKitEditor() {
 }
 
 function renderModal() {
+  if (state.modal.type === 'reset-day') {
+    const message = resetDayConfirm({
+      kitLabel: state.modal.kitName,
+      dateLabel: state.modal.dateLabel,
+    });
+    return `
+      <div class="overlay" id="backdrop">
+        <div class="dialog" id="dialog" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+          <h2 id="modal-title">Reset this date?</h2>
+          <p id="modal-body">${esc(message)}</p>
+          <div class="dialog-actions">
+            <button type="button" class="btn btn-secondary" id="modal-cancel" data-action="modal-cancel">Cancel</button>
+            <button type="button" class="btn btn-primary" id="modal-confirm" data-action="modal-confirm">Reset</button>
+          </div>
+        </div>
+      </div>`;
+  }
   const release = state.modal.type === 'release';
   if (release) {
     return `
@@ -1502,16 +1548,20 @@ async function checkIn() {
   }
 }
 
-function openCheckout(type) {
-  const kit = selectedKit();
+function openCheckout(type, kitId) {
+  const named = kitId == null ? null : state.kits.find((row) => row.id === kitId);
+  const owned = state.kits.find((row) => row.claim && row.claim.userEmail === state.user?.email);
+  const kit = named || (type === 'checkout' ? owned : null) || selectedKit();
   if (!kit?.claim || kit.claim.pending || isPastDate()) return;
+  if (type === 'checkout' && kit.claim.userEmail !== state.user?.email && !isAdmin()) return;
   const phone = window.matchMedia('(max-width: 720px)').matches;
+  state.selectedKitId = kit.id;
   state.modal = {
     type,
     claimId: kit.claim.claimId,
     kitName: kit.name,
     completedTaskIds: kit.claim.completedTaskIds || [],
-    returnId: type === 'release' ? 'release-button' : (phone ? 'phone-check-out' : 'check-button'),
+    returnId: type === 'release' ? 'release-button' : (phone ? 'phone-check-out' : `check-kit-${kit.id}`),
   };
   render();
 }
@@ -1523,9 +1573,102 @@ function closeModal() {
   if (returnId) document.getElementById(returnId)?.focus();
 }
 
+function scrubKitDay(kit, kitId) {
+  if (kitId != null && String(kit.id) !== String(kitId)) return kit;
+  return { ...kit, claim: null, lastCheckedOut: null };
+}
+
+function forgetDayActivity(date, kitId) {
+  if (state.date === date) {
+    state.kits = state.kits.map((kit) => scrubKitDay(kit, kitId));
+    storeKits(date, state.kits);
+  } else if (state.kitsByDate.has(date)) {
+    state.kitsByDate.set(date, state.kitsByDate.get(date).map((kit) => scrubKitDay(kit, kitId)));
+  }
+  const parts = splitYmd(date);
+  const key = monthRange(parts.year, parts.month).key;
+  if (Array.isArray(state.monthRows[key])) {
+    state.monthRows[key] = state.monthRows[key].filter((row) => {
+      const day = row.claimDate || row.ClaimDate;
+      if (day !== date) return true;
+      if (kitId != null && String(row.kitId ?? row.KitID) !== String(kitId)) return true;
+      return false;
+    });
+    state.monthActivity[key] = activityFromRows(state.monthRows[key]);
+  } else if (state.monthActivity[key] && kitId == null) {
+    const next = { ...state.monthActivity[key] };
+    delete next[date];
+    state.monthActivity[key] = next;
+  }
+  state.history = state.history.filter((row) => {
+    const day = row.claimDate || row.ClaimDate;
+    if (day !== date) return true;
+    if (kitId != null && String(row.kitId ?? row.KitID) !== String(kitId)) return true;
+    return false;
+  });
+  state.historyCache.clear();
+}
+
+function openResetDay(kitId) {
+  if (!isAdmin() || !state.date || state.pendingReset) return;
+  let kitName = 'all kits';
+  let id = null;
+  if (kitId != null) {
+    const kit = state.kits.find((row) => String(row.id) === String(kitId));
+    if (!kit || !kitHasDayActivity(kit)) return;
+    kitName = kit.name;
+    id = kit.id;
+  }
+  state.modal = {
+    type: 'reset-day',
+    kitId: id,
+    kitName,
+    date: state.date,
+    dateLabel: formatShortDay(state.date),
+    returnId: id == null ? 'reset-day-all' : `reset-kit-${id}`,
+  };
+  render();
+}
+
+async function confirmResetDay(modal) {
+  if (!isAdmin()) {
+    state.modal = null;
+    render();
+    return;
+  }
+  const date = modal.date;
+  const kitId = modal.kitId;
+  const kitName = modal.kitName;
+  state.modal = null;
+  state.pendingReset = true;
+  clearPageError();
+  render();
+  try {
+    const params = { date };
+    if (kitId != null) params.kitId = kitId;
+    const data = await apiCall('resetDay', params);
+    forgetDayActivity(date, kitId);
+    invalidateMonthActivity();
+    const count = Number(data?.removedCount) || 0;
+    const noun = count === 1 ? 'check-in' : 'check-ins';
+    showToast('ok', `Cleared ${count} ${noun} for ${kitName} on ${formatShortDay(date)}.`);
+    if (state.date === date) refreshKits(date, { preferMine: false });
+    if (state.tab === 'history') refreshHistory();
+  } catch (error) {
+    if (!isAbort(error)) showToast('error', error.message || 'Could not reset that date.');
+  } finally {
+    state.pendingReset = false;
+    if (state.user) render();
+  }
+}
+
 async function confirmModal() {
   const modal = state.modal;
-  if (!modal || state.pendingCheckOut) return;
+  if (!modal || state.pendingCheckOut || state.pendingReset) return;
+  if (modal.type === 'reset-day') {
+    await confirmResetDay(modal);
+    return;
+  }
   const kit = state.kits.find((row) => row.claim?.claimId === modal.claimId) || selectedKit();
   if (!kit?.claim) {
     state.modal = null;
@@ -1756,12 +1899,12 @@ async function refreshMonthMarks(range) {
 
 function rowMatchesFilters(row) {
   const mine = Boolean(state.filters.mineOnly);
-  const email = String(mine ? state.user?.email : state.filters.userEmail || '').trim().toLowerCase();
-  if (email && !rowEmails(row).includes(email)) return false;
-  if (state.filters.kitId && String(row.kitId) !== String(state.filters.kitId)) return false;
-  if (state.filters.from && String(row.claimDate || '') < state.filters.from) return false;
-  if (state.filters.to && String(row.claimDate || '') > state.filters.to) return false;
-  return true;
+  return historyRowMatches(row, {
+    userEmail: mine ? state.user?.email : state.filters.userEmail,
+    kitId: state.filters.kitId,
+    from: state.filters.from,
+    to: state.filters.to,
+  });
 }
 
 async function refreshHistory() {
@@ -1925,6 +2068,7 @@ function signOut() {
   state.signingIn = false;
   state.pendingCheckIn = false;
   state.pendingCheckOut = false;
+  state.pendingReset = false;
   state.pendingSave = '';
   state.pendingToggle = '';
   state.kitHold = 0;
@@ -2182,8 +2326,10 @@ function onClick(event) {
     state.settingsNotice = '';
     setTab('settings');
   } else if (action === 'check-in') checkIn();
-  else if (action === 'check-out') openCheckout('checkout');
+  else if (action === 'check-out') openCheckout('checkout', button.dataset.id ? Number(button.dataset.id) : null);
   else if (action === 'release') openCheckout('release');
+  else if (action === 'reset-kit') openResetDay(Number(button.dataset.id));
+  else if (action === 'reset-day') openResetDay(null);
   else if (action === 'modal-cancel') closeModal();
   else if (action === 'modal-confirm') confirmModal();
   else if (action === 'clear-filters') {
