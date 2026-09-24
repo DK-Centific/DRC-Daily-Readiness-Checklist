@@ -200,6 +200,7 @@ function renderLogin() {
   return `
     <main class="login-screen" id="main">
       <section class="card login-card" aria-labelledby="login-title">
+        <img class="login-logo" src="assets/centific-logo.png" width="112" height="112" alt="Centific">
         <p class="eyebrow">Centific · Data Collection</p>
         <h1 id="login-title">Daily Readiness Checklist</h1>
         <p>Sign in with your Centific ID. Only people on the access list can continue.</p>
@@ -236,9 +237,12 @@ function renderShell() {
   return `
     <div class="shell">
       <header class="topbar">
-        <div>
-          <p class="eyebrow">Centific · Data Collection</p>
-          <h1 class="brand">Daily Readiness Checklist</h1>
+        <div class="brand-lockup">
+          <img class="logo-mark" src="assets/centific-logo.png" width="48" height="48" alt="Centific">
+          <div class="brand-text">
+            <p class="eyebrow">Centific · Data Collection</p>
+            <h1 class="brand">Daily Readiness Checklist</h1>
+          </div>
         </div>
         <div class="who">
           <p>Signed in as <strong>${esc(state.user.name)}</strong></p>

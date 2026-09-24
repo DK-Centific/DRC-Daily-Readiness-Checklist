@@ -97,7 +97,31 @@ button { cursor: pointer; }
   color: #d5e4ee;
 }
 
-.topbar h1 { margin: 0; font-size: clamp(1.6rem, 2.4vw, 2.15rem); line-height: 1.1; }
+.topbar h1 { margin: 0; font-size: clamp(1.35rem, 2.4vw, 2.15rem); line-height: 1.1; }
+
+.brand-lockup {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.brand-text { min-width: 0; }
+
+.logo-mark,
+.login-logo {
+  display: block;
+  object-fit: contain;
+  flex: none;
+  height: auto;
+}
+
+.logo-mark { width: 48px; }
+
+.login-logo {
+  width: 112px;
+  margin: 0 auto 0.85rem;
+}
 
 .who {
   display: flex;
@@ -470,6 +494,8 @@ button:disabled, .primary:disabled {
 
 .login-card { width: min(460px, 100%); }
 
+.login-card .eyebrow { color: var(--navy); }
+
 .login-card h1 { margin: 0.2rem 0 0.35rem; font-size: 2rem; }
 
 .demo { display: grid; gap: 0.45rem; margin-top: 0.9rem; }
@@ -513,6 +539,8 @@ body.modal-open { overflow: hidden; }
 @media (max-width: 420px) {
   .dialog-actions { flex-direction: column-reverse; }
   .dialog-actions button { width: 100%; }
+  .logo-mark { width: 40px; }
+  .login-logo { width: 96px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
