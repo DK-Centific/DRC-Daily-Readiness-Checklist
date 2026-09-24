@@ -1,4 +1,5 @@
 import { createClient } from './api.js';
+import { isAdminRole, isTaskVisible, roleLabel } from './flow-shape.js';
 import {
   addDays,
   calendarCells,
@@ -71,7 +72,7 @@ function lockIcon() {
 }
 
 function isAdmin() {
-  return state.user?.role === 'Admin';
+  return isAdminRole(state.user?.role);
 }
 
 function banner(kind, message, code) {
@@ -271,12 +272,20 @@ function renderChecklist() {
         <section class="card" aria-labelledby="kit-heading">
           <h2 id="kit-heading">Kit</h2>
           ${banner('err', state.kitsError, state.kitsCode)}
-          ${state.kits.length ? renderKitPicker() : (state.kitsError ? '' : '<p>No kits are available.</p>')}
+          ${state.kits.length ? renderKitPicker() : renderEmptyKits()}
           ${renderCheckButton()}
         </section>
         ${renderTasks()}
       </div>
     </div>`;
+}
+
+function renderEmptyKits() {
+  if (state.kitsError) return '';
+  if (isAdmin()) {
+    return `<p>No kits set up yet.</p><p><button type="button" class="primary" data-action="go-settings-kits">Add kits in Settings</button></p>`;
+  }
+  return '<p>No kits set up yet, ask a DRC admin.</p>';
 }
 
 function kitStatus(kit) {
@@ -457,9 +466,9 @@ function renderSettings() {
 
 function renderAccessEditor() {
   const editing = state.editor?.kind === 'access' ? state.editor : null;
-  const activeAdmins = state.access.filter((person) => person.active && person.role === 'Admin').length;
+  const activeAdmins = state.access.filter((person) => person.active && isAdminRole(person.role)).length;
   const rows = state.access.map((person) => {
-    const onlyAdmin = person.active && person.role === 'Admin' && activeAdmins <= 1;
+    const onlyAdmin = person.active && isAdminRole(person.role) && activeAdmins <= 1;
     const self = person.email === state.user.email && person.active;
     const blocked = onlyAdmin || self;
     const why = self ? 'You are signed in with this account.' : 'At least one admin must stay active.';
@@ -474,7 +483,7 @@ function renderAccessEditor() {
         </div>
         <p class="meta">${esc(person.email)}</p>
         <div class="chips">
-          <span class="chip ${person.role === 'Admin' ? 'admin' : ''}">${esc(person.role)}</span>
+          <span class="chip ${isAdminRole(person.role) ? 'admin' : ''}">${esc(roleLabel(person.role))}</span>
           <span class="chip ${person.active ? 'on' : 'off'}">${person.active ? 'Active' : 'Inactive'}</span>
         </div>
         ${blocked && person.active ? `<p class="hint">${esc(why)}</p>` : ''}
@@ -504,8 +513,8 @@ function renderAccessEditor() {
       <div>
         <label for="person-role">Role</label>
         <select id="person-role" name="role">
-          <option value="User" ${editing.role === 'User' ? 'selected' : ''}>User</option>
-          <option value="Admin" ${editing.role === 'Admin' ? 'selected' : ''}>Admin</option>
+          <option value="User" ${isAdminRole(editing.role) ? '' : 'selected'}>User</option>
+          <option value="Admin" ${isAdminRole(editing.role) ? 'selected' : ''}>Admin</option>
         </select>
       </div>
       <div class="check-row">
@@ -578,7 +587,7 @@ function renderKitEditor() {
         <button type="button" class="primary" data-action="add-kit">Add kit</button>
       </div>
       ${form}
-      ${state.allKits.length ? `<ul class="manage-list">${rows}</ul>` : '<p>No kits yet.</p>'}
+      ${state.allKits.length ? `<ul class="manage-list">${rows}</ul>` : '<p id="kits-empty">No kits yet. Add a kit here so people can check in. Each kit needs a name, whether it is active, and a sort order.</p>'}
     </section>`;
 }
 
@@ -699,7 +708,7 @@ async function hydrateTaskIds() {
 async function ensureTasks() {
   if (state.tasksLoaded) return;
   try {
-    state.tasks = await apiCall('getTasks');
+    state.tasks = (await apiCall('getTasks')).filter(isTaskVisible);
     state.tasksLoaded = true;
     state.tasksError = '';
     state.tasksCode = '';
@@ -855,7 +864,23 @@ async function loadSettings() {
     state.settingsError = problems.map((error) => error.message).join(' ');
     state.settingsCode = problems[0].code || '';
   }
+  const openKitForm = state.openKitForm;
+  if (openKitForm) {
+    state.openKitForm = false;
+    state.editor = {
+      kind: 'kit',
+      id: null,
+      name: '',
+      sortOrder: state.allKits.length + 1,
+      notes: '',
+      active: true,
+    };
+  }
   render();
+  if (openKitForm) {
+    document.getElementById('kits-heading')?.scrollIntoView({ block: 'start' });
+    document.getElementById('kit-name')?.focus();
+  }
 }
 
 async function setTab(tab, { focus = false } = {}) {
@@ -864,7 +889,7 @@ async function setTab(tab, { focus = false } = {}) {
   clearPageError();
   if (tab === 'history') await loadHistory();
   else if (tab === 'settings') await loadSettings();
-  else render();
+  else await loadKits({ preferMine: false });
   if (focus) document.getElementById(`tab-${tab}`)?.focus();
 }
 
@@ -1043,6 +1068,10 @@ function onClick(event) {
     const which = button.dataset.which;
     const ymd = which === 'today' ? today : which === 'yesterday' ? addDays(today, -1) : addDays(today, -7);
     setDate(ymd);
+  } else if (action === 'go-settings-kits') {
+    state.openKitForm = true;
+    state.settingsNotice = '';
+    setTab('settings');
   } else if (action === 'check-in') checkIn();
   else if (action === 'check-out') openCheckout('checkout');
   else if (action === 'release') openCheckout('release');

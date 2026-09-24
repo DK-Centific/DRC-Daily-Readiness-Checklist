@@ -132,6 +132,7 @@ test('tasks include Check hardware status and are ordered by TaskOrder', async (
   const result = await api.call({ action: 'getTasks', actor: JANE });
   assert.equal(result.ok, true);
   assert.ok(result.data.some((task) => task.title === 'Check hardware status'));
+  assert.equal(result.data.some((task) => task.title === 'Retired step'), false);
   const orders = result.data.map((task) => task.order);
   assert.deepEqual(orders, [...orders].sort((a, b) => a - b));
 });
@@ -268,10 +269,10 @@ test('a non-admin cannot call admin actions', async () => {
     active: true,
     sortOrder: 9,
   });
-  assert.equal(access.code, 'NOT_ADMIN');
-  assert.equal(kits.code, 'NOT_ADMIN');
-  assert.equal(upsert.code, 'NOT_ADMIN');
-  assert.equal(kit.code, 'NOT_ADMIN');
+  assert.equal(access.code, 'FORBIDDEN');
+  assert.equal(kits.code, 'FORBIDDEN');
+  assert.equal(upsert.code, 'FORBIDDEN');
+  assert.equal(kit.code, 'FORBIDDEN');
 });
 
 test('history for a non-admin is limited to that person even if they ask for someone else', async () => {

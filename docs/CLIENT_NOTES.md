@@ -18,15 +18,17 @@ Every action except `login` must reject an unknown or inactive actor with:
 { "ok": false, "error": "You don't have access. Ask a DRC admin.", "code": "NO_ACCESS" }
 ```
 
-Admin actions (`listAccess`, `upsertAccess`, `listKits`, `upsertKit`) reject a non-admin with code `NOT_ADMIN`.
+Admin actions (`listAccess`, `upsertAccess`, `listKits`, `upsertKit`) reject a non-admin with code `FORBIDDEN`.
 
 Use HTTP 200 for both `{ "ok": true }` and `{ "ok": false }`. Send `Access-Control-Allow-Origin: *`.
 
 ## Response fields the page reads
 
-`login` data: `{ email, name, firstName, lastName, role }`
+`login` data: `{ email, name, firstName, lastName, role }`. `role` is the plain string `Admin` or `User`. The page compares it without caring about capitalization.
 
-`getTasks` data: `[{ id, title, order }]` ordered by `order`. Skip inactive tasks when an Active column exists. Missing Active means the task is shown.
+`getTasks` data: `[{ id, title, order, active? }]` ordered by `order`. If `active` or `Active` is explicitly false (`false`, `"false"`, or `"No"`), the page hides that task. A missing Active flag means the task is shown.
+
+The page does not read legacy log columns. The old date column on DailyReadinessLog is `CompletedDate`, not `CompletionDate`.
 
 `getKits` data, active kits only, for the `date` (`YYYY-MM-DD`):
 
@@ -89,6 +91,8 @@ Non-admins only receive their own rows, even if they send another `userEmail`. `
 
 ## Codes the practice mode uses
 
-`NO_ACCESS`, `NOT_ADMIN`, `KIT_CLAIMED`, `ALREADY_HAVE_CLAIM`, `NOT_OWNER`, `NOT_FOUND`, `NOT_OPEN`, `KIT_INACTIVE`, `INVALID`, `DUPLICATE_EMAIL`, `LAST_ADMIN`.
+`NO_ACCESS`, `FORBIDDEN`, `KIT_CLAIMED`, `ALREADY_HAVE_CLAIM`, `NOT_OWNER`, `NOT_FOUND`, `NOT_OPEN`, `KIT_INACTIVE`, `INVALID`, `DUPLICATE_EMAIL`, `LAST_ADMIN`.
+
+The live flow uses `NO_ACCESS` for an unknown actor, `KIT_CLAIMED` when that kit already has an open claim on that Pacific date, and `FORBIDDEN` when a non-admin calls an admin action. Kit management (`listKits` / `upsertKit` with name, active, and sortOrder) is required. An empty kit list tells a regular person “No kits set up yet, ask a DRC admin” and sends an admin to Settings to add kits.
 
 `LAST_ADMIN` means the save would leave zero active admins.

@@ -21,7 +21,7 @@ All times stored in UTC ISO-8601; UI displays America/Los_Angeles ("PT").
 - Status (Choice: Claimed | CheckedOut)
 - TasksCompleted (number), TasksTotal (number)
 - CompletedTaskIDs (multi-line text, JSON array of task IDs, e.g. [1,3])
-(Legacy columns TaskID/TaskTitle/CompletedBy/CompletionDate can stay but must be made NOT required.)
+(Legacy columns TaskID/TaskTitle/CompletedBy/CompletedDate can stay but must be made NOT required. The page ignores legacy columns.)
 
 ### DRC_Kits (NEW)
 - ID, Title (kit name, e.g. "Kit 01"), Active (Yes/No), SortOrder (number), Notes (text)

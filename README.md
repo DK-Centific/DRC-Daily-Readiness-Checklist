@@ -79,7 +79,7 @@ Node is only needed to run the checks, not to open the page.
 npm test
 ```
 
-That runs `node --test tests/mock-backend.test.js`. The checks cover: one open claim per kit per date, different dates, check-out freeing the kit, admins-only actions, a rejected sign-in, and Pacific time labels.
+That runs the checks in `tests/`. They cover: one open claim per kit per date, different dates, check-out freeing the kit, non-admins blocked with `FORBIDDEN`, a rejected sign-in, Pacific time labels, Admin/User role text, and hiding tasks whose Active flag is false.
 
 ## Assumptions
 
@@ -93,5 +93,8 @@ That runs `node --test tests/mock-backend.test.js`. The checks cover: one open c
 - New emails must end in `@centific.com`, except the shared `admin-drc` id.
 - The last active admin cannot be removed.
 - Month arrows move the calendar only. The selected day changes when you click a day, Today, Yesterday, or Last week.
-- Kit management is included in Settings.
+- Kit management is in Settings (name, active, sort order). If no kits exist yet, a regular person sees “No kits set up yet, ask a DRC admin.” An admin gets a button that opens Settings to add the first kit.
+- The flow address belongs only in `config.local.js`. Nothing in git contains a real flow URL.
+- A non-admin who opens Settings actions gets the code `FORBIDDEN`. Unknown people get `NO_ACCESS`. A kit already claimed that day gets `KIT_CLAIMED`.
+- Tasks with Active explicitly false are hidden. The page ignores old log columns, including `CompletedDate`.
 - Practice buttons are hidden in connected mode.

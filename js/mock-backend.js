@@ -3,6 +3,8 @@
  * Same actions, error codes, and business rules as docs/DRC_SPEC_AND_API_CONTRACT.md.
  */
 
+import { isAdminRole, isTaskVisible, roleLabel } from './flow-shape.js';
+
 const STORAGE_KEY = 'drc.mock.v1';
 
 const NO_ACCESS = "You don't have access. Ask a DRC admin.";
@@ -66,7 +68,7 @@ function asId(value) {
 function seed() {
   const addedAt = '2026-01-01T00:00:00.000Z';
   return {
-    nextId: { access: 5, kit: 5, task: 5, log: 1 },
+    nextId: { access: 5, kit: 5, task: 6, log: 1 },
     access: [
       { id: 1, name: 'Brian Leong', email: 'brian.leong@centific.com', firstName: 'Brian', lastName: 'Leong', role: 'Admin', active: true, addedBy: 'seed', addedAt },
       { id: 2, name: 'Annie Tran', email: 'thaingan.tran@centific.com', firstName: 'Annie', lastName: 'Tran', role: 'Admin', active: true, addedBy: 'seed', addedAt },
@@ -84,6 +86,7 @@ function seed() {
       { id: 2, title: 'Verify network connection', order: 2, active: true },
       { id: 3, title: 'Confirm kit contents', order: 3, active: true },
       { id: 4, title: 'Record start conditions', order: 4, active: true },
+      { id: 5, title: 'Retired step', order: 0, active: false },
     ],
     logs: [],
   };
@@ -154,13 +157,13 @@ function requireActive(db, actor) {
 function requireAdmin(db, actor) {
   const result = requireActive(db, actor);
   if (!result.user) return result;
-  if (result.user.role !== 'Admin') return fail('Admin access is required.', 'NOT_ADMIN');
+  if (!isAdminRole(result.user.role)) return fail('Admin access is required.', 'FORBIDDEN');
   return result;
 }
 
 function activeTasks(db) {
   return db.tasks
-    .filter((task) => task.active !== false)
+    .filter((task) => isTaskVisible(task))
     .slice()
     .sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999) || a.id - b.id);
 }
@@ -344,8 +347,8 @@ function listAccess(db, actor) {
 
 function activeAdminCount(db, exceptId, next) {
   return db.access.filter((row) => {
-    if (row.id === exceptId) return next.active && next.role === 'Admin';
-    return row.active && row.role === 'Admin';
+    if (row.id === exceptId) return next.active && isAdminRole(next.role);
+    return row.active && isAdminRole(row.role);
   }).length;
 }
 
@@ -358,7 +361,8 @@ function upsertAccess(db, write, actor, params) {
   if (!isAcceptableEmail(email)) {
     return fail('Use a Centific email (name@centific.com).', 'INVALID');
   }
-  if (params.role !== 'Admin' && params.role !== 'User') {
+  const role = roleLabel(params.role);
+  if (role !== 'Admin' && role !== 'User') {
     return fail('Role must be Admin or User.', 'INVALID');
   }
   const active = params.active === undefined ? true : params.active;
@@ -380,7 +384,7 @@ function upsertAccess(db, write, actor, params) {
       email,
       firstName,
       lastName,
-      role: params.role,
+      role,
       active,
       addedBy: auth.user.email,
       addedAt: new Date().toISOString(),
@@ -393,7 +397,7 @@ function upsertAccess(db, write, actor, params) {
 
   const row = db.access.find((item) => item.id === id);
   if (!row) return fail('That person was not found.', 'NOT_FOUND');
-  const next = { ...row, name, email, firstName, lastName, role: params.role, active };
+  const next = { ...row, name, email, firstName, lastName, role, active };
   if (activeAdminCount(db, row.id, next) < 1) return fail('Keep at least one active admin.', 'LAST_ADMIN');
   Object.assign(row, next);
   write(db);
