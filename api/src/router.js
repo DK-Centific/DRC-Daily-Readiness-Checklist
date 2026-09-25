@@ -7,6 +7,7 @@ import { getTasks } from './actions/getTasks.js';
 import { listAccess } from './actions/listAccess.js';
 import { listKits } from './actions/listKits.js';
 import { login } from './actions/login.js';
+import { isAdminWrite, isWriteAction, proxyWrite } from './proxy.js';
 
 const NO_ACCESS = "You don't have access. Ask a DRC admin.";
 const FORBIDDEN = 'Admin access is required.';
@@ -42,7 +43,7 @@ export async function handleHttp(request, deps) {
 export async function route(body, deps) {
   const action = String(body?.action ?? '').trim();
   if (!action) return fail('VALIDATION', 'action is required');
-  if (!NATIVE.has(action)) return fail('VALIDATION', 'Unknown action');
+  if (!NATIVE.has(action) && !isWriteAction(action)) return fail('VALIDATION', 'Unknown action');
   try {
     return await dispatch(action, body, deps);
   } catch {
@@ -55,7 +56,16 @@ async function dispatch(action, body, deps) {
   const rows = await loadAccessRows(deps);
   const actor = resolveActor(rows, rawActor);
   if (!actor) return fail('NO_ACCESS', NO_ACCESS);
-  if (ADMIN_ONLY.has(action) && !isAdmin(actor)) return fail('FORBIDDEN', FORBIDDEN);
+  if ((ADMIN_ONLY.has(action) || isAdminWrite(action)) && !isAdmin(actor)) {
+    return fail('FORBIDDEN', FORBIDDEN);
+  }
+  if (isWriteAction(action)) {
+    return proxyWrite({
+      url: deps.settings?.paRouterUrl || '',
+      body,
+      fetchImpl: deps.fetchImpl,
+    });
+  }
   if (action === 'login') return ok(login(actor));
   if (action === 'getTasks') return ok(await getTasks(deps));
   if (action === 'getKits') return getKits(deps, body);

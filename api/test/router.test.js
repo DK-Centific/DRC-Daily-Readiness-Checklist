@@ -140,7 +140,7 @@ test('listKits is allowed for a non-admin and includes inactive kits', async () 
 });
 
 test('unknown action is VALIDATION', async () => {
-  const res = await route({ action: 'checkIn', actor: 'jane.doe@centific.com' }, { accessRows });
+  const res = await route({ action: 'not-an-action', actor: 'jane.doe@centific.com' }, { accessRows });
   assert.equal(res.jsonBody.code, 'VALIDATION');
 });
 
