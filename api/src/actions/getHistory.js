@@ -60,11 +60,11 @@ export function buildHistoryFilter(params = {}) {
 export async function getHistory(deps, body) {
   const built = buildHistoryFilter(body || {});
   if (built.error) return fail(built.error, built.message);
+  // Newest id first is applied below. Graph $orderby=id is not reliable on list items.
   const items = await deps.graph.listItems(deps.settings.lists.log, {
     filter: built.filter,
     select: HISTORY_SELECT,
     top: 500,
-    orderby: 'id desc',
   });
   const rows = items
     .map(rowFromItem)
