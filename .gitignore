@@ -2,6 +2,8 @@ config.local.js
 config.local.json
 dist/
 node_modules/
+api/node_modules/
+api/local.settings.json
 .DS_Store
 .drc_*
 *.sas

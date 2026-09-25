@@ -1,0 +1,16 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "node",
+    "GRAPH_TENANT_ID": "",
+    "GRAPH_CLIENT_ID": "",
+    "GRAPH_CLIENT_SECRET": "",
+    "SP_SITE_ID": "",
+    "SP_LIST_LOG": "7e537ecf-b161-4904-b238-6c5639a435c1",
+    "SP_LIST_TASKS": "e66c73cb-0810-4547-af8f-46e7f793bdd3",
+    "SP_LIST_KITS": "3bfaa34f-e12d-4a03-b29e-e472189f1f6e",
+    "SP_LIST_ACCESS": "07c4ca78-f5d8-461b-9138-f5c8ecf1f40e",
+    "PA_ROUTER_URL": ""
+  }
+}
