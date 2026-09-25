@@ -118,7 +118,18 @@ That runs `node --test`. No SharePoint call is made.
 
 ## Blob cache
 
-Not in this pass. See the note added when Task 8 is decided. Direct Graph is the read path until warm timings say otherwise.
+Skipped in this pull request. Warm timings do not exist yet, because this change does not deploy the Function. Reads go straight to Microsoft Graph.
+
+Turn the cache on only if a later smoke shows warm medians at or above 2 seconds for `getTasks`, `getKits`, `listKits`, or `getHistory`. Until then, do not add Blob reads.
+
+If that later pass is needed, reuse the existing container `drc-cache` on storage account `stdrcreadcache01`. Keys:
+
+- `tasks/v1.json`
+- `kits/{yyyy-MM-dd}.json`
+- `listKits/v1.json`
+- `access/v1.json`
+
+Envelope: `{ "expiresAt", "cachedAt", "ttlSeconds": 45, "action", "payload" }`. A miss or a bad blob must not fail the read. Writes stay on Power Automate. That flow already deletes these blobs when data changes.
 
 ## Deploy
 
