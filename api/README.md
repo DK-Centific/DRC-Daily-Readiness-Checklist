@@ -133,4 +133,13 @@ Envelope: `{ "expiresAt", "cachedAt", "ttlSeconds": 45, "action", "payload" }`. 
 
 ## Deploy
 
-Do not deploy from this pull request. `scripts/deploy.sh` and `scripts/smoke.sh` are added as stubs in a later commit. Cutover steps for Ron are in `docs/DRC-FUNCTION-CUTOVER.md` once that file exists.
+This pull request does not deploy anything. `scripts/deploy.sh` and `scripts/smoke.sh` only print the later steps. They do not call Azure, and they do not call the live checklist.
+
+```bash
+bash scripts/deploy.sh
+bash scripts/smoke.sh
+```
+
+Suggested Function App name, to confirm free before create: `func-drc-read` in `pegasus-checklist-rg` / `centralus`. Node 20, Functions v4, anonymous HTTP route `drc`.
+
+Cutover for Ron is in [docs/DRC-FUNCTION-CUTOVER.md](../docs/DRC-FUNCTION-CUTOVER.md). The page is not changed in this pull request.
