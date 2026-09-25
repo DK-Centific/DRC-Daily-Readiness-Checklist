@@ -10,8 +10,10 @@ These notes sit next to the checklist page. This pass adds documentation only. T
 | [DRC-BLOB-CACHE-DESIGN.md](DRC-BLOB-CACHE-DESIGN.md) | Short-lived Blob cache already used by Power Automate |
 | [PA-BACKEND-BUILD-REPORT.md](PA-BACKEND-BUILD-REPORT.md) | What was built in Power Automate, and the timing results |
 
-Future Function code will live under `api/`. That folder is empty until the Function is built.
+| [DRC-FUNCTION-CUTOVER.md](DRC-FUNCTION-CUTOVER.md) | How Ron points the page at the Function later, and how to switch back |
 
-After the Function ships, the page switches by changing one address. No page redesign in that step. Until then, Power Automate remains the live backend.
+The Function code lives under `api/`. Reads are answered there. Saves are still forwarded to Power Automate. The page is not switched in that pull request.
+
+After David deploys the Function and the warm reads are fast enough, the page switches by changing one address (`DRC_FLOW_URL`). No page redesign in that step. Until then, Power Automate remains the live backend.
 
 Do not commit flow addresses, blob signatures, tokens, or connection strings. Keep those in local files such as `config.local.json` and `.drc_*`.
