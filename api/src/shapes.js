@@ -1,3 +1,5 @@
+import { normalizeEmail } from './normalize.js';
+
 function choiceString(value) {
   if (value && typeof value === 'object' && value.Value != null) return String(value.Value);
   return value == null ? '' : String(value);
@@ -110,5 +112,48 @@ export function mapKitCatalog(row) {
     active: activeBoolean(row.Active ?? row.active),
     sortOrder: Number.isFinite(sortOrder) ? sortOrder : 0,
     notes: String(row.Notes ?? row.notes ?? ''),
+  };
+}
+
+export function mapHistoryRow(row) {
+  const id = asNumber(row.id ?? row.ID);
+  const claimDate = String(row.ClaimDate ?? row.claimDate ?? '');
+  const checkOutRaw = row.CheckOutAt ?? row.checkOutAt;
+  return {
+    id,
+    claimId: id,
+    title: String(row.Title ?? row.title ?? ''),
+    userEmail: String(row.UserEmail ?? row.userEmail ?? ''),
+    userName: String(row.UserName ?? row.userName ?? ''),
+    kitId: asNumber(row.KitID ?? row.kitId),
+    kitName: String(row.KitName ?? row.kitName ?? ''),
+    claimDate,
+    date: claimDate,
+    checkInAt: row.CheckInAt ?? row.checkInAt ?? null,
+    checkOutAt: checkOutRaw == null || checkOutRaw === '' ? null : checkOutRaw,
+    status: choiceString(row.Status ?? row.status),
+    tasksCompleted: asNumber(row.TasksCompleted ?? row.tasksCompleted) ?? 0,
+    tasksTotal: asNumber(row.TasksTotal ?? row.tasksTotal) ?? 0,
+    completedTaskIds: parseCompletedTaskIds(row.CompletedTaskIDs ?? row.CompletedTaskIds ?? row.completedTaskIds),
+    checkedOutByEmail: String(row.CheckedOutByEmail ?? row.checkedOutByEmail ?? ''),
+    checkedOutByName: String(row.CheckedOutByName ?? row.checkedOutByName ?? ''),
+  };
+}
+
+export function mapAccessRow(row) {
+  const firstName = String(row.FirstName ?? row.firstName ?? '');
+  const lastName = String(row.LastName ?? row.lastName ?? '');
+  const email = normalizeEmail(row.Email ?? row.email);
+  const name = String(row.Title ?? row.name ?? '').trim()
+    || [firstName, lastName].filter(Boolean).join(' ')
+    || email;
+  return {
+    id: asNumber(row.id),
+    name,
+    email,
+    firstName,
+    lastName,
+    role: displayRole(row.Role ?? row.role),
+    active: activeBoolean(row.Active ?? row.active),
   };
 }

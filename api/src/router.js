@@ -1,14 +1,18 @@
-import { resolveActor } from './auth.js';
+import { isAdmin, resolveActor } from './auth.js';
 import { rowFromItem } from './graph.js';
 import { corsHeaders, fail, normalizeEmail, ok } from './normalize.js';
+import { getHistory } from './actions/getHistory.js';
 import { getKits } from './actions/getKits.js';
 import { getTasks } from './actions/getTasks.js';
+import { listAccess } from './actions/listAccess.js';
 import { listKits } from './actions/listKits.js';
 import { login } from './actions/login.js';
 
 const NO_ACCESS = "You don't have access. Ask a DRC admin.";
+const FORBIDDEN = 'Admin access is required.';
 
-const NATIVE = new Set(['login', 'getTasks', 'getKits', 'listKits']);
+const NATIVE = new Set(['login', 'getTasks', 'getKits', 'listKits', 'getHistory', 'listAccess']);
+const ADMIN_ONLY = new Set(['listAccess']);
 
 export async function handleHttp(request, deps) {
   if (request.method === 'OPTIONS') {
@@ -51,10 +55,13 @@ async function dispatch(action, body, deps) {
   const rows = await loadAccessRows(deps);
   const actor = resolveActor(rows, rawActor);
   if (!actor) return fail('NO_ACCESS', NO_ACCESS);
+  if (ADMIN_ONLY.has(action) && !isAdmin(actor)) return fail('FORBIDDEN', FORBIDDEN);
   if (action === 'login') return ok(login(actor));
   if (action === 'getTasks') return ok(await getTasks(deps));
   if (action === 'getKits') return getKits(deps, body);
   if (action === 'listKits') return listKits(deps);
+  if (action === 'getHistory') return getHistory(deps, body);
+  if (action === 'listAccess') return listAccess(deps);
   return fail('VALIDATION', 'Unknown action');
 }
 
