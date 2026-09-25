@@ -1,14 +1,13 @@
 import { app } from '@azure/functions';
-import { corsHeaders, fail } from './normalize.js';
+import { createGraphClient, loadSettings } from './graph.js';
+import { handleHttp } from './router.js';
+
+const settings = loadSettings();
+const graph = createGraphClient({ settings });
 
 app.http('drc', {
   methods: ['POST', 'OPTIONS'],
   authLevel: 'anonymous',
   route: 'drc',
-  handler: async (request) => {
-    if (request.method === 'OPTIONS') {
-      return { status: 204, headers: corsHeaders() };
-    }
-    return fail('VALIDATION', 'Not implemented');
-  },
+  handler: (request) => handleHttp(request, { settings, graph }),
 });
