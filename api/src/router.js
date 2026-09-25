@@ -1,12 +1,14 @@
 import { resolveActor } from './auth.js';
 import { rowFromItem } from './graph.js';
 import { corsHeaders, fail, normalizeEmail, ok } from './normalize.js';
+import { getKits } from './actions/getKits.js';
 import { getTasks } from './actions/getTasks.js';
+import { listKits } from './actions/listKits.js';
 import { login } from './actions/login.js';
 
 const NO_ACCESS = "You don't have access. Ask a DRC admin.";
 
-const NATIVE = new Set(['login', 'getTasks']);
+const NATIVE = new Set(['login', 'getTasks', 'getKits', 'listKits']);
 
 export async function handleHttp(request, deps) {
   if (request.method === 'OPTIONS') {
@@ -51,6 +53,8 @@ async function dispatch(action, body, deps) {
   if (!actor) return fail('NO_ACCESS', NO_ACCESS);
   if (action === 'login') return ok(login(actor));
   if (action === 'getTasks') return ok(await getTasks(deps));
+  if (action === 'getKits') return getKits(deps, body);
+  if (action === 'listKits') return listKits(deps);
   return fail('VALIDATION', 'Unknown action');
 }
 

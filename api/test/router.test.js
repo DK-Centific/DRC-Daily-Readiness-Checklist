@@ -72,6 +72,73 @@ test('inactive actor cannot read tasks', async () => {
   assert.equal(res.jsonBody.code, 'NO_ACCESS');
 });
 
+test('getKits joins open claims and rejects a bad date', async () => {
+  const calls = [];
+  const graph = {
+    async listItems(listId, options) {
+      calls.push({ listId, options });
+      if (listId === 'kits-guid') {
+        return [
+          { id: '14', fields: { Title: 'Test Kit 23Sep', SortOrder: 1, Active: true } },
+          { id: '2', fields: { Title: 'Empty', SortOrder: 2, Active: true } },
+        ];
+      }
+      return [{
+        id: '28',
+        fields: {
+          UserEmail: 'jane.doe@centific.com',
+          UserName: 'Jane Doe',
+          KitID: 14,
+          CheckInAt: '2026-09-24T15:06:00.000Z',
+          Status: 'Claimed',
+          CompletedTaskIDs: 'not-json',
+        },
+      }];
+    },
+  };
+  const deps = {
+    accessRows,
+    graph,
+    settings: { lists: { kits: 'kits-guid', log: 'log-guid' } },
+  };
+  const bad = await route({ action: 'getKits', actor: 'jane.doe@centific.com' }, deps);
+  assert.equal(bad.jsonBody.code, 'VALIDATION');
+  const res = await route({ action: 'getKits', actor: 'jane.doe@centific.com', date: '2026-09-24' }, deps);
+  assert.equal(res.jsonBody.ok, true);
+  assert.equal(res.jsonBody.data[0].id, 14);
+  assert.deepEqual(res.jsonBody.data[0].claim.completedTaskIds, []);
+  assert.equal(res.jsonBody.data[0].claim.claimId, 28);
+  assert.equal(res.jsonBody.data[1].claim, null);
+  const claimCall = calls.find((call) => call.listId === 'log-guid');
+  assert.match(claimCall.options.filter, /ClaimDate eq '2026-09-24'/);
+  assert.match(claimCall.options.filter, /Status eq 'Claimed'/);
+  assert.equal(claimCall.options.top, 100);
+  assert.match(calls.find((call) => call.listId === 'kits-guid').options.filter, /Active ne false/);
+});
+
+test('listKits is allowed for a non-admin and includes inactive kits', async () => {
+  let options;
+  const res = await route({ action: 'listKits', actor: 'jane.doe@centific.com' }, {
+    accessRows,
+    settings: { lists: { kits: 'kits-guid' } },
+    graph: {
+      async listItems(listId, opts) {
+        assert.equal(listId, 'kits-guid');
+        options = opts;
+        return [
+          { id: '2', fields: { Title: 'Retired', Active: false, SortOrder: 2, Notes: 'old' } },
+          { id: '1', fields: { Title: 'Kit 01', Active: true, SortOrder: 1, Notes: '' } },
+        ];
+      },
+    },
+  });
+  assert.equal(options.filter, undefined);
+  assert.deepEqual(res.jsonBody.data, [
+    { id: 1, name: 'Kit 01', active: true, sortOrder: 1, notes: '' },
+    { id: 2, name: 'Retired', active: false, sortOrder: 2, notes: 'old' },
+  ]);
+});
+
 test('unknown action is VALIDATION', async () => {
   const res = await route({ action: 'checkIn', actor: 'jane.doe@centific.com' }, { accessRows });
   assert.equal(res.jsonBody.code, 'VALIDATION');
