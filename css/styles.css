@@ -1107,6 +1107,9 @@ body.sheet-open { overflow: hidden; }
 .remaining { margin: 0 0 16px; padding: 0 0 0 18px; font-size: 14px; color: var(--text); }
 .remaining li { margin-bottom: 4px; }
 .dialog-actions { display: flex; gap: var(--space-2); justify-content: flex-end; flex-wrap: wrap; }
+.checkout-note-field { margin: 0 0 16px; }
+.checkout-note-field textarea { display: block; width: 100%; min-height: 72px; }
+.hist-note { margin: 4px 0 0; color: var(--muted); font-size: 13px; white-space: pre-wrap; }
 
 .filters { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; margin-bottom: var(--space-4); }
 .search, .field input, .field textarea, .field select, .add-row input, .select {

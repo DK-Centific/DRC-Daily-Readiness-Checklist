@@ -8,6 +8,9 @@ import { groupTasks, taskHint } from './task-groups.js';
 /** Status shown after a kit is checked out. The Check out button stays the verb. */
 export const CHECKOUT_STATUS_LABEL = 'Kit ready to deploy';
 
+/** Same words as the day summary row for a short checkout. */
+export const INCOMPLETE_CHECKOUT_LABEL = 'Incomplete checkout';
+
 /** Status on a kit someone else has claimed today. */
 export const IN_PROGRESS_STATUS = 'In progress';
 
@@ -34,27 +37,90 @@ export function pastCheckoutBadge(done, total) {
   return checkoutStatusLabel(fraction);
 }
 
-/**
- * Today's kit tile badge. Open claims stay Yours / In progress.
- * A finished kit is one with no open claim. lastCheckedOut has no reliable
- * done/total, so the label matches a past checkout with no task total.
- */
-/** A checked-out kit with no open claim stays ready until an admin reset. */
-export function kitStaysReady({ claim, lastCheckedOut } = {}) {
-  return !claim && Boolean(lastCheckedOut);
+/** Tile label for a short checkout. Fraction is omitted when the day has no task total. */
+export function incompleteCheckoutBadge(done, total) {
+  const fraction = Number(total) > 0 ? ` · ${done}/${total}` : '';
+  return `${INCOMPLETE_CHECKOUT_LABEL}${fraction}`;
 }
 
-export function todayKitBadge({ claim, viewerEmail, lastCheckedOut } = {}) {
+/**
+ * Finished state for one kit on the selected day.
+ * Day summary counts the same history outcome (complete / incomplete).
+ * lastCheckedOut covers getKits and the moment right after checkout, before
+ * that day's history has loaded. Once history is loaded it wins, including
+ * a reset that removed the checkout row. An open claim wins over both.
+ */
+export function kitFinish({ claim, lastCheckedOut, outcome, historyLoaded = false } = {}) {
+  if (claim) return null;
+  if (outcome?.kind === 'complete' || outcome?.kind === 'incomplete') {
+    return {
+      kind: outcome.kind,
+      checkOutAt: outcome.checkOutAt || '',
+      userName: outcome.userName || '',
+      userEmail: outcome.userEmail || '',
+      tasksCompleted: outcome.tasksCompleted,
+      tasksTotal: outcome.tasksTotal,
+    };
+  }
+  if (historyLoaded) return null;
+  if (!lastCheckedOut) return null;
+  const done = Number(lastCheckedOut.tasksCompleted);
+  const total = Number(lastCheckedOut.tasksTotal);
+  const incomplete = Number.isFinite(done) && Number.isFinite(total) && total > 0 && done < total;
+  return {
+    kind: incomplete ? 'incomplete' : 'complete',
+    checkOutAt: lastCheckedOut.checkOutAt || '',
+    userName: lastCheckedOut.userName || '',
+    userEmail: lastCheckedOut.userEmail || '',
+    tasksCompleted: Number.isFinite(done) ? done : undefined,
+    tasksTotal: Number.isFinite(total) ? total : undefined,
+  };
+}
+
+/** A checked-out kit with no open claim stays locked until an admin reset. */
+export function kitStaysReady(input = {}) {
+  return Boolean(kitFinish(input));
+}
+
+export function todayKitBadge({ claim, viewerEmail, lastCheckedOut, outcome, historyLoaded = false } = {}) {
   if (claim && claim.userEmail === viewerEmail) {
     return { badgeClass: 'badge-yours', label: 'Yours', claimable: false };
   }
   if (claim) {
     return { badgeClass: 'badge-locked', label: inProgressStatus(claim.userName || claim.userEmail), claimable: false };
   }
-  if (lastCheckedOut) {
-    return { badgeClass: 'badge-sage', label: pastCheckoutBadge(0, 0), claimable: false };
+  const finish = kitFinish({ claim: null, lastCheckedOut, outcome, historyLoaded });
+  if (finish?.kind === 'incomplete') {
+    const done = Number.isFinite(Number(finish.tasksCompleted)) ? Number(finish.tasksCompleted) : 0;
+    const total = Number.isFinite(Number(finish.tasksTotal)) ? Number(finish.tasksTotal) : 0;
+    return { badgeClass: 'badge-amber', label: incompleteCheckoutBadge(done, total), claimable: false };
+  }
+  if (finish) {
+    return { badgeClass: 'badge-sage', label: CHECKOUT_STATUS_LABEL, claimable: false };
   }
   return { badgeClass: 'badge-available', label: 'Available', claimable: true };
+}
+
+/** Optional note on an incomplete checkout. Hidden when every task is done. */
+export function renderCheckoutNoteField({ show = false, value = '' } = {}) {
+  if (!show) return '';
+  return `
+    <div class="field checkout-note-field">
+      <label for="checkout-note">Note</label>
+      <textarea id="checkout-note" name="notes" placeholder="What was wrong?">${esc(value)}</textarea>
+    </div>`;
+}
+
+/** checkOut body. notes is sent only when staff typed one. */
+export function checkOutParams({ claimId, completedTaskIds, tasksTotal, notes } = {}) {
+  const body = {
+    claimId,
+    completedTaskIds,
+    tasksTotal,
+  };
+  const note = String(notes ?? '').trim();
+  if (note) body.notes = note;
+  return body;
 }
 
 export function checkoutReadyMessage(kitName) {

@@ -3,7 +3,7 @@
  * Admins see a month with per-day activity. Staff see a compact date chip.
  */
 
-import { CHECKOUT_STATUS_LABEL } from './checklist-view.js';
+import { CHECKOUT_STATUS_LABEL, INCOMPLETE_CHECKOUT_LABEL } from './checklist-view.js';
 import { normalizeHistoryRows } from './flow-shape.js';
 import { addDays, shiftMonth, splitYmd } from './time.js';
 
@@ -229,7 +229,7 @@ export function renderDaySummary({ label, activity, loaded, resetAll = false, re
       <h3>Day summary · ${esc(label)}</h3>
       <div class="day-summary-row"><span>Claimed</span><span class="n-claimed tabular">${number(day.claimed)}</span></div>
       <div class="day-summary-row"><span>${esc(CHECKOUT_STATUS_LABEL)}</span><span class="n-out tabular">${number(day.complete)}</span></div>
-      <div class="day-summary-row"><span>Incomplete checkout</span><span class="n-inc tabular">${number(day.incomplete)}</span></div>
+      <div class="day-summary-row"><span>${esc(INCOMPLETE_CHECKOUT_LABEL)}</span><span class="n-inc tabular">${number(day.incomplete)}</span></div>
       ${reset}
     </section>`;
 }

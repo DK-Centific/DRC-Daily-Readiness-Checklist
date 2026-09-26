@@ -145,6 +145,7 @@ function publicLog(row) {
     completedTaskIds: [...row.completedTaskIds],
     checkedOutByEmail: row.checkedOutByEmail || '',
     checkedOutByName: row.checkedOutByName || '',
+    notes: row.notes || '',
   };
 }
 
@@ -287,6 +288,7 @@ function checkIn(db, write, actor, params) {
     completedTaskIds: [],
     checkedOutByEmail: '',
     checkedOutByName: '',
+    notes: '',
   };
   db.logs.push(log);
   write(db);
@@ -332,6 +334,7 @@ function checkOut(db, write, actor, params) {
   claim.checkOutAt = new Date().toISOString();
   claim.checkedOutByEmail = auth.user.email;
   claim.checkedOutByName = auth.user.name;
+  claim.notes = String(params.notes ?? params.checkoutNote ?? '').trim();
   write(db);
   return ok({
     claimId: claim.id,

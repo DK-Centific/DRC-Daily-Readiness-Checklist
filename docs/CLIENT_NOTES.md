@@ -51,7 +51,7 @@ The page does not read legacy log columns. The old date column on DailyReadiness
 
 `claim` is the open `Claimed` row for that kit and date, or `null`. `completedTaskIds` is extra but the page needs it to redraw checkboxes. If it is missing, the page falls back to `getHistory` for that kit and date.
 
-`lastCheckedOut` is optional: `{ claimId, userEmail, userName, checkOutAt }` for the latest `CheckedOut` row that day, or `null`.
+`lastCheckedOut` is optional: `{ claimId, userEmail, userName, checkOutAt }` for the latest `CheckedOut` row that day, or `null`. When it is missing, the page still treats a kit as finished for that day if `getHistory` has a checked-out row for it. That is the same row the day summary counts. An open claim still wins. After `resetDay`, both the summary and the tile go back to available.
 
 `checkIn` data: `{ claimId, kitId, kitName, date, checkInAt }`
 
@@ -60,6 +60,8 @@ Errors: `KIT_CLAIMED` (someone already holds that kit that day), `ALREADY_HAVE_C
 `updateTasks` data: `{ claimId, completedTaskIds }` — owner only, and only while the claim is open.
 
 `checkOut` data: `{ claimId, checkOutAt, tasksCompleted, tasksTotal, checkedOutByEmail, checkedOutByName }` — owner or admin. Record the signed-in person who checked the kit out, even when that person is an admin releasing someone else’s claim. Please count `tasksCompleted` from real task ids and set `tasksTotal` from the active task list. Do not trust a made-up total from the browser. Checking out sets `Status` to `CheckedOut` and frees the kit. A later check-in is a new log row.
+
+`checkOut` may include optional `notes` (a short string). It is only sent when staff typed one on an incomplete checkout. Persist it on that DailyReadinessLog row. `getHistory` should return it as `notes` (`Notes` is also accepted). Leave it blank when there is no note. The History tab shows it on the completed line.
 
 `getHistory` data rows:
 
@@ -79,7 +81,8 @@ Errors: `KIT_CLAIMED` (someone already holds that kit that day), `ALREADY_HAVE_C
   "tasksTotal": 4,
   "completedTaskIds": [1],
   "checkedOutByEmail": "",
-  "checkedOutByName": ""
+  "checkedOutByName": "",
+  "notes": ""
 }
 ```
 

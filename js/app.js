@@ -28,15 +28,18 @@ import {
   weekDates,
 } from './calendar-view.js';
 import {
+  checkOutParams,
   checkoutReadyMessage,
-  kitStaysReady,
+  incompleteCheckoutBadge,
+  kitFinish,
   pastCheckoutBadge,
+  renderCheckoutNoteField,
   todayKitBadge,
   renderAdminChecklistMirror,
   renderTaskGroups,
   tileProgressLabel,
-} from './checklist-view.js?v=21';
-import { historyEventVerb, historyEvents, rowMatchesFilters as historyRowMatches } from './history-events.js?v=20';
+} from './checklist-view.js?v=22';
+import { historyEventVerb, historyEvents, rowMatchesFilters as historyRowMatches } from './history-events.js?v=21';
 import { applyTheme, saveThemeChoice, watchSystemTheme } from './theme.js';
 import { mergeRuntimeConfig, parseLegacyConfigJs, parseLocalConfig } from './config-load.js';
 import { acceptedLoginUser, planSessionRestore } from './session-restore.js';
@@ -130,6 +133,9 @@ const state = {
   monthActivity: {},
   monthRows: {},
   loadedMonths: new Set(),
+  dayRows: {},
+  loadedDays: new Set(),
+  dayHistoryFailed: new Set(),
   adminMonthOpen: false,
 };
 
@@ -529,6 +535,7 @@ function finishPaint() {
   paintThemeToggle();
   paintProgressBar();
   scheduleMonthMarks();
+  scheduleDayHistory();
 }
 
 function renderLogin() {
@@ -780,14 +787,51 @@ function renderEmptyKits() {
   return '<p>No kits set up yet, ask a DRC admin.</p>';
 }
 
+function monthKey(ymd) {
+  const parts = splitYmd(ymd);
+  return monthRange(parts.year, parts.month).key;
+}
+
+/** History for the selected day. Month rows win when that month has loaded. */
+function dayHistory() {
+  if (!state.date) return { loaded: false, rows: [] };
+  const key = monthKey(state.date);
+  if (state.loadedMonths.has(key)) {
+    const rows = (state.monthRows[key] || []).filter((row) => (row.claimDate || row.ClaimDate) === state.date);
+    return { loaded: true, rows };
+  }
+  if (state.loadedDays.has(state.date)) {
+    return { loaded: true, rows: state.dayRows[state.date] || [] };
+  }
+  return { loaded: false, rows: [] };
+}
+
+/** Same finished/incomplete decision the day summary uses, once history is in. */
+function finishForKit(kit) {
+  if (!kit) return null;
+  const history = dayHistory();
+  const outcome = history.loaded ? outcomeForKit(history.rows, kit.id) : null;
+  return kitFinish({
+    claim: kit.claim,
+    lastCheckedOut: kit.lastCheckedOut,
+    outcome,
+    historyLoaded: history.loaded,
+  });
+}
+
+function kitIsFinished(kit) {
+  return Boolean(finishForKit(kit));
+}
+
 function kitTileMeta(kit) {
   if (kit.claim?.userEmail === state.user?.email) return 'Checked in by you';
   if (kit.claim) return `Checked in ${formatPtTime(kit.claim.checkInAt)}`;
-  if (kit.lastCheckedOut?.checkOutAt) {
-    const who = kit.lastCheckedOut.userName || kit.lastCheckedOut.userEmail || 'Someone';
-    return `${who} · out ${formatPtTime(kit.lastCheckedOut.checkOutAt)}`;
+  const finish = isPastDate() ? null : finishForKit(kit);
+  if (finish?.checkOutAt) {
+    const who = finish.userName || finish.userEmail || 'Someone';
+    return `${who} · out ${formatPtTime(finish.checkOutAt)}`;
   }
-  if (kit.lastCheckedOut) return 'Ready to deploy';
+  if (finish) return finish.kind === 'incomplete' ? 'Incomplete checkout' : 'Ready to deploy';
   if (kit.notes) return kit.notes;
   return 'No check-in today';
 }
@@ -817,17 +861,19 @@ function pastKitPresentation(kit) {
   const total = Number.isFinite(outcome.tasksTotal) ? outcome.tasksTotal : 0;
   const done = Number.isFinite(outcome.tasksCompleted) ? outcome.tasksCompleted : 0;
   const who = outcome.userName || outcome.userEmail || 'Someone';
+  const incomplete = outcome.kind === 'incomplete';
   return {
-    badgeClass: outcome.kind === 'incomplete' ? 'badge-amber' : 'badge-sage',
-    badge: pastCheckoutBadge(done, total),
+    badgeClass: incomplete ? 'badge-amber' : 'badge-sage',
+    badge: incomplete ? incompleteCheckoutBadge(done, total) : pastCheckoutBadge(done, total),
     meta: `${who} · out ${formatPtTime(outcome.checkOutAt)}`,
   };
 }
 
 function rowsForSelectedDate() {
   if (!state.date) return [];
-  const parts = splitYmd(state.date);
-  const key = monthRange(parts.year, parts.month).key;
+  const history = dayHistory();
+  if (history.loaded) return history.rows;
+  const key = monthKey(state.date);
   return (state.monthRows[key] || []).filter((row) => (row.claimDate || row.ClaimDate) === state.date);
 }
 
@@ -845,7 +891,7 @@ function renderKitReset(kit) {
 function renderKitTiles() {
   const past = isPastDate();
   const tiles = state.kits.map((kit) => {
-    const ready = !past && kitStaysReady({ claim: kit.claim, lastCheckedOut: kit.lastCheckedOut });
+    const ready = !past && kitIsFinished(kit);
     let tile;
     if (past) {
       const view = pastKitPresentation(kit);
@@ -860,10 +906,13 @@ function renderKitTiles() {
       const mine = claim && claim.userEmail === state.user.email;
       const locked = Boolean(claim && !mine);
       const selected = !ready && kit.id === state.selectedKitId;
+      const history = dayHistory();
       const view = todayKitBadge({
         claim,
         viewerEmail: state.user?.email,
         lastCheckedOut: kit.lastCheckedOut,
+        outcome: history.loaded ? outcomeForKit(history.rows, kit.id) : null,
+        historyLoaded: history.loaded,
       });
       const badge = locked
         ? `<span class="badge badge-locked">${lockIcon()} ${esc(view.label)}</span>`
@@ -905,12 +954,14 @@ function checkButtonState() {
       release: isAdmin(),
     };
   }
-  if (kitStaysReady({ claim: kit.claim, lastCheckedOut: kit.lastCheckedOut })) {
+  if (kitIsFinished(kit)) {
+    const finish = finishForKit(kit);
+    const status = finish?.kind === 'incomplete' ? 'has an incomplete checkout' : 'is ready to deploy';
     return {
       label: 'Check in',
       action: 'check-in',
       disabled: true,
-      reason: `${kit.name} is ready to deploy. An admin reset unlocks it for this date.`,
+      reason: `${kit.name} ${status}. An admin reset unlocks it for this date.`,
     };
   }
   const mine = state.kits.find((row) => row.claim && row.claim.userEmail === state.user.email);
@@ -927,7 +978,7 @@ function checkButtonState() {
 
 function renderKitActions(kit) {
   if (isPastDate() || !kit) return '';
-  if (kitStaysReady({ claim: kit.claim, lastCheckedOut: kit.lastCheckedOut })) return '';
+  if (kitIsFinished(kit)) return '';
   const selected = kit.id === state.selectedKitId;
   const mine = Boolean(kit.claim && kit.claim.userEmail === state.user?.email);
   const locked = Boolean(kit.claim && !mine);
@@ -987,7 +1038,11 @@ function renderTasks() {
   }
   const mirror = !claim && kit?.claim && isAdmin() ? kit.claim : null;
   if (!claim && !mirror) {
-    if (kit && kitStaysReady({ claim: kit.claim, lastCheckedOut: kit.lastCheckedOut })) {
+    const finish = kit ? finishForKit(kit) : null;
+    if (finish?.kind === 'incomplete') {
+      return '<section class="card preview-disabled"><div class="preview-msg"><strong>Incomplete checkout</strong>This kit stays locked until an admin resets it for this date.</div></section>';
+    }
+    if (finish) {
       return '<section class="card preview-disabled"><div class="preview-msg"><strong>Kit ready to deploy</strong>This kit stays locked until an admin resets it for this date.</div></section>';
     }
     const text = kit?.claim
@@ -1030,7 +1085,7 @@ function visibleHistoryEvents() {
   const query = state.historyQuery.trim().toLowerCase();
   return historyEvents(state.history).filter((event) => {
     if (!query) return true;
-    return `${event.name} ${event.email} ${event.kitName}`.toLowerCase().includes(query);
+    return `${event.name} ${event.email} ${event.kitName} ${event.notes || ''}`.toLowerCase().includes(query);
   });
 }
 
@@ -1098,6 +1153,7 @@ function historyCardsHtml() {
         <div class="hist-body">
           <p class="hist-line"><strong>${esc(event.name || event.email || 'Unknown')}</strong> ${verb} <strong>${esc(event.kitName)}</strong></p>
           <p class="hist-time">${esc(when)}${event.email ? ` · ${esc(event.email)}` : ''}${event.claimDate ? ` · claim date ${esc(formatYmdLabel(event.claimDate))}` : ''}</p>
+          ${event.notes ? `<p class="hist-note">${esc(event.notes)}</p>` : ''}
         </div>
         ${pill}
       </article>`;
@@ -1298,6 +1354,7 @@ function renderModal() {
         <p class="dialog-summary"><span class="tabular">${completed} of ${total}</span> tasks done</p>
         <p class="dialog-warn" id="modal-body">Please ensure you have completed the task.</p>
         ${remaining.length ? `<p class="meta spaced-sm">Still open:</p><ul class="remaining">${remaining.map((task) => `<li>${esc(task.title)}</li>`).join('')}</ul>` : ''}
+        ${renderCheckoutNoteField({ show: remaining.length > 0, value: state.modal.notes || '' })}
         <div class="dialog-actions">
           <button type="button" class="btn btn-secondary" id="modal-cancel" data-action="modal-cancel">Keep working</button>
           <button type="button" class="btn btn-primary" id="modal-confirm" data-action="modal-confirm">${confirmLabel}</button>
@@ -1411,7 +1468,15 @@ async function refreshKits(date, { preferMine = false } = {}) {
   state.kitsCode = '';
   if (state.tab === 'checklist') render();
   try {
-    const kits = normalizeKitClaims(await apiCall('getKits', { date }, { lane: 'kits' }));
+    const incoming = normalizeKitClaims(await apiCall('getKits', { date }, { lane: 'kits' }));
+    const previous = state.kitsByDate.get(date) || [];
+    const historyLoaded = dayHistory().loaded;
+    const kits = incoming.map((kit) => {
+      if (historyLoaded || kit.claim || kit.lastCheckedOut) return kit;
+      const prev = previous.find((row) => String(row.id) === String(kit.id));
+      if (!prev?.lastCheckedOut) return kit;
+      return { ...kit, lastCheckedOut: prev.lastCheckedOut };
+    });
     if (serial !== kitsSerial || state.user?.email !== actor || state.date !== date || state.kitHold > 0) return;
     kits.forEach((kit) => rememberKit(kit.id, kit.name));
     storeKits(date, kits);
@@ -1515,7 +1580,7 @@ function setDate(ymd, { focusDay = false } = {}) {
 
 async function checkIn() {
   const kit = selectedKit();
-  if (!kit || kit.claim || kitStaysReady(kit) || state.pendingCheckIn || isPastDate()) return;
+  if (!kit || kit.claim || kitIsFinished(kit) || state.pendingCheckIn || isPastDate()) return;
   const date = state.date;
   const snapshot = cloneData(state.kits);
   const checkInAt = new Date().toISOString();
@@ -1622,6 +1687,12 @@ function forgetDayActivity(date, kitId) {
     delete next[date];
     state.monthActivity[key] = next;
   }
+  if (Array.isArray(state.dayRows[date])) {
+    state.dayRows[date] = state.dayRows[date].filter((row) => {
+      if (kitId != null && String(row.kitId ?? row.KitID) !== String(kitId)) return true;
+      return false;
+    });
+  }
   state.history = state.history.filter((row) => {
     const day = row.claimDate || row.ClaimDate;
     if (day !== date) return true;
@@ -1702,12 +1773,20 @@ async function confirmModal() {
   const ids = modal.type === 'checkout'
     ? (myClaim(kit)?.completedTaskIds || modal.completedTaskIds || [])
     : (modal.completedTaskIds || []);
+  const note = modal.type === 'checkout'
+    ? String(document.getElementById('checkout-note')?.value ?? modal.notes ?? '').trim()
+    : '';
+  const doneIds = new Set(ids.map((id) => String(id)));
+  const tasksCompleted = state.tasks.filter((task) => doneIds.has(String(task.id))).length;
+  const tasksTotal = state.tasks.length;
   kit.claim = null;
   kit.lastCheckedOut = {
     claimId: modal.claimId,
     userEmail: state.user.email,
     userName: state.user.name,
     checkOutAt: new Date().toISOString(),
+    tasksCompleted,
+    tasksTotal,
   };
   state.modal = null;
   state.pendingCheckOut = true;
@@ -1719,11 +1798,12 @@ async function confirmModal() {
   state.historyCache.clear();
   render();
   try {
-    await apiCall('checkOut', {
+    await apiCall('checkOut', checkOutParams({
       claimId: modal.claimId,
       completedTaskIds: ids,
-      tasksTotal: state.tasks.length,
-    });
+      tasksTotal,
+      notes: note,
+    }));
     storeKits(date, state.kits);
     invalidateMonthActivity();
   } catch (error) {
@@ -1872,6 +1952,8 @@ function showCachedHistory() {
 
 let marksSerial = 0;
 let marksFlight = '';
+let daySerial = 0;
+let dayFlight = '';
 
 function monthRangesToLoad() {
   if (!state.user || state.tab !== 'checklist') return [];
@@ -1892,8 +1974,52 @@ function monthRangesToLoad() {
 
 function invalidateMonthActivity() {
   state.loadedMonths = new Set();
+  state.loadedDays = new Set();
+  state.dayHistoryFailed = new Set();
   marksFlight = '';
+  dayFlight = '';
   marksSerial += 1;
+  daySerial += 1;
+}
+
+function selectedDateUsesMonthHistory() {
+  if (!state.date) return false;
+  const targets = monthMarkTargets({ isAdmin: isAdmin(), pastDate: isPastDate() });
+  const selectedKey = monthKey(state.date);
+  const viewKey = monthRange(state.viewYear, state.viewMonth).key;
+  if (targets.includes('selected-month')) return true;
+  if (targets.includes('view-month') && viewKey === selectedKey) return true;
+  return false;
+}
+
+function scheduleDayHistory() {
+  if (!checklistReadyForMonthMarks({
+    kitsLoaded: state.kitsLoaded,
+    checklistLoading: state.loading.checklist,
+  })) return;
+  if (!state.user || state.tab !== 'checklist' || !state.date) return;
+  if (selectedDateUsesMonthHistory()) return;
+  if (state.loadedDays.has(state.date) || state.dayHistoryFailed.has(state.date) || dayFlight === state.date) return;
+  refreshDayHistory(state.date);
+}
+
+async function refreshDayHistory(date) {
+  const serial = ++daySerial;
+  dayFlight = date;
+  const actor = state.user?.email;
+  try {
+    const rows = await apiCall('getHistory', { from: date, to: date }, { lane: 'day-finish' });
+    if (serial !== daySerial || state.user?.email !== actor) return;
+    state.dayRows[date] = (rows || []).filter((row) => (row.claimDate || row.ClaimDate) === date);
+    state.loadedDays.add(date);
+    state.dayHistoryFailed.delete(date);
+    if (state.tab === 'checklist' && state.date === date) render();
+  } catch (error) {
+    if (isAbort(error) || serial !== daySerial) return;
+    state.dayHistoryFailed.add(date);
+  } finally {
+    if (serial === daySerial && dayFlight === date) dayFlight = '';
+  }
 }
 
 function scheduleMonthMarks() {
@@ -2096,8 +2222,13 @@ function signOut() {
   state.monthActivity = {};
   state.monthRows = {};
   state.loadedMonths = new Set();
+  state.dayRows = {};
+  state.loadedDays = new Set();
+  state.dayHistoryFailed = new Set();
   marksSerial += 1;
   marksFlight = '';
+  daySerial += 1;
+  dayFlight = '';
   state.signingIn = false;
   state.pendingCheckIn = false;
   state.pendingCheckOut = false;
@@ -2384,7 +2515,7 @@ function onClick(event) {
     const id = Number(button.dataset.id);
     const kit = state.kits.find((row) => row.id === id);
     if (!kit) return;
-    if (kitStaysReady(kit)) return;
+    if (kitIsFinished(kit)) return;
     if (kit.claim && kit.claim.userEmail !== state.user.email && !isAdmin()) return;
     state.selectedKitId = id;
     state.message = '';
@@ -2542,6 +2673,9 @@ document.addEventListener('change', onChange);
 document.addEventListener('input', (event) => {
   const form = event.target?.closest?.('#kit-form, #access-form');
   if (form && state.editor) captureEditorFromDom();
+  if (event.target?.id === 'checkout-note' && state.modal?.type === 'checkout') {
+    state.modal.notes = event.target.value;
+  }
   if (event.target?.id === 'history-search') {
     state.historyQuery = event.target.value;
     const results = document.getElementById('history-results');

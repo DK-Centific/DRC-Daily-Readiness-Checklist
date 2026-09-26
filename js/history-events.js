@@ -56,6 +56,7 @@ export function historyEvents(rows) {
       email: text(row.userEmail),
       tasksCompleted: row.tasksCompleted,
       tasksTotal: row.tasksTotal,
+      notes: '',
     });
     if (row.checkOutAt || row.status === 'CheckedOut') {
       const actor = unclaimActor(row);
@@ -70,6 +71,7 @@ export function historyEvents(rows) {
         email: actor.email,
         tasksCompleted: row.tasksCompleted,
         tasksTotal: row.tasksTotal,
+        notes: text(row.notes),
       });
     }
   }

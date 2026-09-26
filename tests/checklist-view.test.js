@@ -2,15 +2,21 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   CHECKOUT_STATUS_LABEL,
+  INCOMPLETE_CHECKOUT_LABEL,
+  checkOutParams,
   checkoutReadyMessage,
   inProgressStatus,
+  incompleteCheckoutBadge,
+  kitFinish,
   kitStaysReady,
   pastCheckoutBadge,
   renderAdminChecklistMirror,
+  renderCheckoutNoteField,
   renderTaskGroups,
   tileProgressLabel,
   todayKitBadge,
 } from '../js/checklist-view.js';
+import { activityFromRows, outcomeForKit } from '../js/calendar-view.js';
 
 function tasks(count = 18) {
   return Array.from({ length: count }, (_, index) => ({
@@ -147,4 +153,113 @@ test('a completed kit stays ready and is not claimable until reset clears it', (
   });
   assert.equal(badge.label, 'Kit ready to deploy');
   assert.equal(badge.claimable, false);
+});
+
+test('today tile matches a day-summary checkout even when getKits omitted lastCheckedOut', () => {
+  const rows = [
+    {
+      claimDate: '2026-09-26',
+      kitId: 1,
+      checkOutAt: '2026-09-26T18:00:00.000Z',
+      tasksCompleted: 18,
+      tasksTotal: 18,
+      userName: 'Jane Doe',
+      userEmail: 'jane.doe@centific.com',
+    },
+    {
+      claimDate: '2026-09-26',
+      kitId: 2,
+      checkOutAt: '2026-09-26T19:00:00.000Z',
+      tasksCompleted: 2,
+      tasksTotal: 18,
+      userName: 'Alex Kim',
+    },
+  ];
+  assert.equal(activityFromRows(rows)['2026-09-26'].complete, 1);
+  assert.equal(activityFromRows(rows)['2026-09-26'].incomplete, 1);
+
+  const readyOutcome = outcomeForKit(rows, 1);
+  const ready = kitFinish({ claim: null, lastCheckedOut: null, outcome: readyOutcome, historyLoaded: true });
+  assert.equal(ready.kind, 'complete');
+  const readyBadge = todayKitBadge({
+    claim: null,
+    viewerEmail: 'brian.leong@centific.com',
+    lastCheckedOut: null,
+    outcome: readyOutcome,
+    historyLoaded: true,
+  });
+  assert.equal(readyBadge.label, CHECKOUT_STATUS_LABEL);
+  assert.equal(readyBadge.badgeClass, 'badge-sage');
+  assert.equal(readyBadge.claimable, false);
+  assert.equal(kitStaysReady({ claim: null, lastCheckedOut: null, outcome: readyOutcome, historyLoaded: true }), true);
+
+  const shortOutcome = outcomeForKit(rows, 2);
+  const short = kitFinish({ claim: null, lastCheckedOut: null, outcome: shortOutcome, historyLoaded: true });
+  assert.equal(short.kind, 'incomplete');
+  const shortBadge = todayKitBadge({
+    claim: null,
+    viewerEmail: 'brian.leong@centific.com',
+    lastCheckedOut: null,
+    outcome: shortOutcome,
+    historyLoaded: true,
+  });
+  assert.equal(shortBadge.label, incompleteCheckoutBadge(2, 18));
+  assert.equal(shortBadge.label, `${INCOMPLETE_CHECKOUT_LABEL} · 2/18`);
+  assert.equal(shortBadge.badgeClass, 'badge-amber');
+  assert.equal(shortBadge.claimable, false);
+  assert.equal(kitStaysReady({ claim: null, lastCheckedOut: null, outcome: shortOutcome, historyLoaded: true }), true);
+
+  const idle = todayKitBadge({
+    claim: null,
+    viewerEmail: 'brian.leong@centific.com',
+    lastCheckedOut: null,
+    outcome: null,
+    historyLoaded: true,
+  });
+  assert.equal(idle.label, 'Available');
+});
+
+test('loaded history with no checkout clears a stale lastCheckedOut', () => {
+  const stale = {
+    claim: null,
+    lastCheckedOut: { checkOutAt: '2026-09-26T18:00:00.000Z', userName: 'Jane Doe' },
+    outcome: null,
+    historyLoaded: true,
+  };
+  assert.equal(kitFinish(stale), null);
+  assert.equal(kitStaysReady(stale), false);
+  assert.equal(todayKitBadge({
+    claim: null,
+    viewerEmail: 'jane.doe@centific.com',
+    lastCheckedOut: stale.lastCheckedOut,
+    outcome: null,
+    historyLoaded: true,
+  }).label, 'Available');
+});
+
+test('incomplete checkout dialog has an optional note and complete checkout does not', () => {
+  const incomplete = renderCheckoutNoteField({ show: true, value: 'Lens cracked' });
+  assert.match(incomplete, /<label for="checkout-note">Note<\/label>/);
+  assert.match(incomplete, /placeholder="What was wrong\?"/);
+  assert.match(incomplete, />Lens cracked</);
+  assert.equal(incomplete.includes('required'), false);
+  assert.equal(renderCheckoutNoteField({ show: false, value: 'hidden' }), '');
+
+  assert.deepEqual(checkOutParams({
+    claimId: 10,
+    completedTaskIds: [1],
+    tasksTotal: 18,
+    notes: '  Lens cracked  ',
+  }), {
+    claimId: 10,
+    completedTaskIds: [1],
+    tasksTotal: 18,
+    notes: 'Lens cracked',
+  });
+  assert.equal('notes' in checkOutParams({
+    claimId: 10,
+    completedTaskIds: [1, 2],
+    tasksTotal: 2,
+    notes: '   ',
+  }), false);
 });

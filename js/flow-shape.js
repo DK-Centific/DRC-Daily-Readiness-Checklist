@@ -116,6 +116,7 @@ export function normalizeHistoryRow(row) {
   fillAlias(next, row, 'completedTaskIds', ['CompletedTaskIDs', 'CompletedTaskIds']);
   fillAlias(next, row, 'checkedOutByEmail', ['CheckedOutByEmail']);
   fillAlias(next, row, 'checkedOutByName', ['CheckedOutByName']);
+  fillAlias(next, row, 'notes', ['Notes', 'checkoutNote', 'CheckoutNote']);
   return withCompletedTaskIds(next);
 }
 
