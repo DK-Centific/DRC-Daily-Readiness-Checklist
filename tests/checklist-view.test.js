@@ -8,6 +8,7 @@ import {
   renderAdminChecklistMirror,
   renderTaskGroups,
   tileProgressLabel,
+  todayKitBadge,
 } from '../js/checklist-view.js';
 
 function tasks(count = 18) {
@@ -84,4 +85,44 @@ test('finished kit status says Kit ready to deploy', () => {
   assert.equal(pastCheckoutBadge(2, 18), 'Kit ready to deploy · 2/18');
   assert.equal(checkoutReadyMessage('Kit 01'), 'Kit 01 is ready to deploy. The kit is free for this date.');
   assert.equal(pastCheckoutBadge(2, 18).includes('Checked out'), false);
+});
+
+test('today tile says Kit ready to deploy after checkout', () => {
+  const finished = todayKitBadge({
+    claim: null,
+    viewerEmail: 'jane.doe@centific.com',
+    lastCheckedOut: {
+      claimId: 10,
+      userEmail: 'jane.doe@centific.com',
+      userName: 'Jane Doe',
+      checkOutAt: '2026-09-26T18:00:00.000Z',
+    },
+  });
+  assert.equal(finished.badgeClass, 'badge-sage');
+  assert.equal(finished.label, 'Kit ready to deploy');
+  assert.equal(finished.label.includes('/'), false);
+
+  const idle = todayKitBadge({
+    claim: null,
+    viewerEmail: 'jane.doe@centific.com',
+    lastCheckedOut: null,
+  });
+  assert.equal(idle.badgeClass, 'badge-available');
+  assert.equal(idle.label, 'Available');
+
+  const mine = todayKitBadge({
+    claim: { userEmail: 'jane.doe@centific.com', userName: 'Jane Doe' },
+    viewerEmail: 'jane.doe@centific.com',
+    lastCheckedOut: { checkOutAt: '2026-09-26T17:00:00.000Z' },
+  });
+  assert.equal(mine.badgeClass, 'badge-yours');
+  assert.equal(mine.label, 'Yours');
+
+  const other = todayKitBadge({
+    claim: { userEmail: 'alex@centific.com', userName: 'Alex Kim' },
+    viewerEmail: 'jane.doe@centific.com',
+    lastCheckedOut: null,
+  });
+  assert.equal(other.badgeClass, 'badge-locked');
+  assert.equal(other.label, 'In progress · Alex Kim');
 });

@@ -29,12 +29,12 @@ import {
 } from './calendar-view.js';
 import {
   checkoutReadyMessage,
-  inProgressStatus,
   pastCheckoutBadge,
+  todayKitBadge,
   renderAdminChecklistMirror,
   renderTaskGroups,
   tileProgressLabel,
-} from './checklist-view.js';
+} from './checklist-view.js?v=19';
 import { historyEvents, rowMatchesFilters as historyRowMatches } from './history-events.js';
 import { applyTheme, saveThemeChoice, watchSystemTheme } from './theme.js';
 import { mergeRuntimeConfig, parseLegacyConfigJs, parseLocalConfig } from './config-load.js';
@@ -854,9 +854,14 @@ function renderKitTiles() {
       const mine = claim && claim.userEmail === state.user.email;
       const locked = Boolean(claim && !mine);
       const selected = kit.id === state.selectedKitId;
-      let badge = '<span class="badge badge-available">Available</span>';
-      if (mine) badge = '<span class="badge badge-yours">Yours</span>';
-      else if (locked) badge = `<span class="badge badge-locked">${lockIcon()} ${esc(inProgressStatus(claim.userName || claim.userEmail))}</span>`;
+      const view = todayKitBadge({
+        claim,
+        viewerEmail: state.user?.email,
+        lastCheckedOut: kit.lastCheckedOut,
+      });
+      const badge = locked
+        ? `<span class="badge badge-locked">${lockIcon()} ${esc(view.label)}</span>`
+        : `<span class="badge ${view.badgeClass}">${esc(view.label)}</span>`;
       const progress = tileProgressLabel({ roleIsAdmin: isAdmin(), claim, tasks: state.tasks });
       const disabled = locked && !isAdmin();
       tile = `
