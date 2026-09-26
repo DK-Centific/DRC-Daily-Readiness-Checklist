@@ -4,6 +4,7 @@ import {
   CHECKOUT_STATUS_LABEL,
   checkoutReadyMessage,
   inProgressStatus,
+  kitStaysReady,
   pastCheckoutBadge,
   renderAdminChecklistMirror,
   renderTaskGroups,
@@ -83,7 +84,8 @@ test('finished kit status says Kit ready to deploy', () => {
   assert.equal(CHECKOUT_STATUS_LABEL, 'Kit ready to deploy');
   assert.equal(pastCheckoutBadge(0, 0), 'Kit ready to deploy');
   assert.equal(pastCheckoutBadge(2, 18), 'Kit ready to deploy · 2/18');
-  assert.equal(checkoutReadyMessage('Kit 01'), 'Kit 01 is ready to deploy. The kit is free for this date.');
+  assert.equal(checkoutReadyMessage('Kit 01'), 'Kit 01 is ready to deploy.');
+  assert.equal(checkoutReadyMessage('Kit 01').includes('free'), false);
   assert.equal(pastCheckoutBadge(2, 18).includes('Checked out'), false);
 });
 
@@ -125,4 +127,24 @@ test('today tile says Kit ready to deploy after checkout', () => {
   });
   assert.equal(other.badgeClass, 'badge-locked');
   assert.equal(other.label, 'In progress · Alex Kim');
+});
+
+test('a completed kit stays ready and is not claimable until reset clears it', () => {
+  const finished = {
+    claim: null,
+    lastCheckedOut: { checkOutAt: '2026-09-26T18:00:00.000Z', userName: 'Jane Doe' },
+  };
+  assert.equal(kitStaysReady(finished), true);
+  assert.equal(kitStaysReady({ claim: null, lastCheckedOut: null }), false);
+  assert.equal(kitStaysReady({
+    claim: { userEmail: 'alex@centific.com' },
+    lastCheckedOut: { checkOutAt: '2026-09-26T18:00:00.000Z' },
+  }), false);
+  const badge = todayKitBadge({
+    claim: null,
+    viewerEmail: 'jane.doe@centific.com',
+    lastCheckedOut: finished.lastCheckedOut,
+  });
+  assert.equal(badge.label, 'Kit ready to deploy');
+  assert.equal(badge.claimable, false);
 });

@@ -39,21 +39,26 @@ export function pastCheckoutBadge(done, total) {
  * A finished kit is one with no open claim. lastCheckedOut has no reliable
  * done/total, so the label matches a past checkout with no task total.
  */
+/** A checked-out kit with no open claim stays ready until an admin reset. */
+export function kitStaysReady({ claim, lastCheckedOut } = {}) {
+  return !claim && Boolean(lastCheckedOut);
+}
+
 export function todayKitBadge({ claim, viewerEmail, lastCheckedOut } = {}) {
   if (claim && claim.userEmail === viewerEmail) {
-    return { badgeClass: 'badge-yours', label: 'Yours' };
+    return { badgeClass: 'badge-yours', label: 'Yours', claimable: false };
   }
   if (claim) {
-    return { badgeClass: 'badge-locked', label: inProgressStatus(claim.userName || claim.userEmail) };
+    return { badgeClass: 'badge-locked', label: inProgressStatus(claim.userName || claim.userEmail), claimable: false };
   }
   if (lastCheckedOut) {
-    return { badgeClass: 'badge-sage', label: pastCheckoutBadge(0, 0) };
+    return { badgeClass: 'badge-sage', label: pastCheckoutBadge(0, 0), claimable: false };
   }
-  return { badgeClass: 'badge-available', label: 'Available' };
+  return { badgeClass: 'badge-available', label: 'Available', claimable: true };
 }
 
 export function checkoutReadyMessage(kitName) {
-  return `${kitName} is ready to deploy. The kit is free for this date.`;
+  return `${kitName} is ready to deploy.`;
 }
 
 /** Claim-status label. Keeps the person's name when the tile already shows one. */
