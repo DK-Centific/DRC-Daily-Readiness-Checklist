@@ -59,9 +59,9 @@ Errors: `KIT_CLAIMED` (someone already holds that kit that day), `ALREADY_HAVE_C
 
 `updateTasks` data: `{ claimId, completedTaskIds }` — owner only, and only while the claim is open.
 
-`checkOut` data: `{ claimId, checkOutAt, tasksCompleted, tasksTotal, checkedOutByEmail, checkedOutByName }` — owner or admin. Record the signed-in person who checked the kit out, even when that person is an admin releasing someone else’s claim. Please count `tasksCompleted` from real task ids and set `tasksTotal` from the active task list. Do not trust a made-up total from the browser. Checking out sets `Status` to `CheckedOut` and frees the kit. A later check-in is a new log row.
+`checkOut` data: `{ claimId, checkOutAt, tasksCompleted, tasksTotal, checkedOutByEmail, checkedOutByName, notes }` — owner or admin. Record the signed-in person who checked the kit out, even when that person is an admin releasing someone else’s claim. Please count `tasksCompleted` from real task ids and set `tasksTotal` from the active task list. Do not trust a made-up total from the browser. Checking out sets `Status` to `CheckedOut` and frees the kit. A later check-in is a new log row. `notes` is always a string and may be `""`.
 
-`checkOut` may include optional `notes` (a short string). It is only sent when staff typed one on an incomplete checkout. Persist it on that DailyReadinessLog row. `getHistory` should return it as `notes` (`Notes` is also accepted). Leave it blank when there is no note. The History tab shows it on the completed line.
+`checkOut` may include optional `notes` (a string). The page sends `notes` only, and only when staff typed one on an incomplete checkout. It does not send `incompleteReason`. If both arrive, `notes` wins. Persist the text on `DailyReadinessLog.CheckoutNotes`. `getHistory` returns that text as `notes`, using `""` when the column is empty. The History tab shows it on the completed line.
 
 `getHistory` data rows:
 

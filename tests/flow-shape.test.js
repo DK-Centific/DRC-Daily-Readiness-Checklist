@@ -74,7 +74,20 @@ test('live history rows use claimDate and id', () => {
   assert.equal(lookup[0].kitId, 1);
   assert.equal(coerceRecordId({ LookupId: '4' }), 4);
   assert.equal(normalizeHistoryRows(null), null);
-  assert.deepEqual(normalizeHistoryRows([{ id: 4, claimDate: '2026-09-24' }]), [{ id: 4, claimDate: '2026-09-24' }]);
+  assert.deepEqual(normalizeHistoryRows([{ id: 4, claimDate: '2026-09-24' }]), [{ id: 4, claimDate: '2026-09-24', notes: '' }]);
+});
+
+test('history notes come from notes, or CheckoutNotes when notes is missing', () => {
+  const named = normalizeHistoryRows([{ id: 1, notes: '  Lens cracked  ' }]);
+  assert.equal(named[0].notes, 'Lens cracked');
+  const column = normalizeHistoryRows([{ id: 2, CheckoutNotes: 'Camera mount was loose' }]);
+  assert.equal(column[0].notes, 'Camera mount was loose');
+  const blank = normalizeHistoryRows([{ id: 3, notes: '', CheckoutNotes: 'saved column' }]);
+  assert.equal(blank[0].notes, '');
+  const missing = normalizeHistoryRows([{ id: 5, notes: null, CheckoutNotes: 'From the column' }]);
+  assert.equal(missing[0].notes, 'From the column');
+  const events = historyEvents([{ id: 2, checkOutAt: '2026-09-26T18:00:00.000Z', status: 'CheckedOut', CheckoutNotes: 'Camera mount was loose' }]);
+  assert.equal(events.find((event) => event.kind === 'unclaimed').notes, 'Camera mount was loose');
 });
 
 test('stringified completedTaskIds become a real array', () => {

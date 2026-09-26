@@ -1,6 +1,6 @@
 /** Turn claim rows into a newest-first claimed / completed log. Checkout kind stays "unclaimed". */
 
-import { normalizeHistoryRows } from './flow-shape.js';
+import { checkoutNotesText, normalizeHistoryRows } from './flow-shape.js?v=25';
 
 function rowEmails(row) {
   return [row?.userEmail, row?.UserEmail, row?.checkedOutByEmail, row?.CheckedOutByEmail]
@@ -71,7 +71,7 @@ export function historyEvents(rows) {
         email: actor.email,
         tasksCompleted: row.tasksCompleted,
         tasksTotal: row.tasksTotal,
-        notes: text(row.notes),
+        notes: checkoutNotesText(row),
       });
     }
   }

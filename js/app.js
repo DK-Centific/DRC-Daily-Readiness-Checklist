@@ -1,4 +1,4 @@
-import { createClient } from './api.js';
+import { createClient } from './api.js?v=25';
 import {
   accessFromForm,
   accessPayload,
@@ -10,7 +10,7 @@ import {
   validateAccess,
   validateKit,
 } from './editor-state.js';
-import { coerceCompletedTaskIds, isAdminRole, isTaskVisible, normalizeHistoryRows, normalizeKitClaims, openClaimNeedsTaskHydrate, roleLabel } from './flow-shape.js';
+import { coerceCompletedTaskIds, isAdminRole, isTaskVisible, normalizeCheckoutData, normalizeHistoryRows, normalizeKitClaims, openClaimNeedsTaskHydrate, roleLabel } from './flow-shape.js?v=25';
 import {
   activityForDay,
   activityFromRows,
@@ -40,7 +40,7 @@ import {
   renderTaskGroups,
   tileProgressLabel,
 } from './checklist-view.js?v=24';
-import { historyEventVerb, historyEvents, rowMatchesFilters as historyRowMatches } from './history-events.js?v=21';
+import { historyEventVerb, historyEvents, rowMatchesFilters as historyRowMatches } from './history-events.js?v=22';
 import { applyTheme, saveThemeChoice, watchSystemTheme } from './theme.js';
 import { mergeRuntimeConfig, parseLegacyConfigJs, parseLocalConfig } from './config-load.js';
 import { acceptedLoginUser, planSessionRestore } from './session-restore.js';
@@ -240,6 +240,7 @@ async function apiCall(action, params = {}, options = {}) {
     throw error;
   }
   if (action === 'getHistory') return normalizeHistoryRows(result.data);
+  if (action === 'checkOut') return normalizeCheckoutData(result.data);
   if (action === 'getKits') return normalizeKitClaims(result.data);
   if (action === 'updateTasks' && result.data && typeof result.data === 'object') {
     const ids = coerceCompletedTaskIds(result.data.completedTaskIds);

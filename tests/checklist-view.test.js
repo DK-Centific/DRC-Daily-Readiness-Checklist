@@ -352,10 +352,12 @@ test('incomplete checkout dialog has an optional note and complete checkout does
     tasksTotal: 18,
     notes: 'Lens cracked',
   });
-  assert.equal('notes' in checkOutParams({
+  const empty = checkOutParams({
     claimId: 10,
     completedTaskIds: [1, 2],
     tasksTotal: 2,
     notes: '   ',
-  }), false);
+  });
+  assert.equal('notes' in empty, false);
+  assert.equal('incompleteReason' in empty, false);
 });

@@ -111,7 +111,7 @@ export function renderCheckoutNoteField({ show = false, value = '' } = {}) {
     </div>`;
 }
 
-/** checkOut body. notes is sent only when staff typed one. */
+/** checkOut body. Send notes only, and only when staff typed one. Never send incompleteReason. */
 export function checkOutParams({ claimId, completedTaskIds, tasksTotal, notes } = {}) {
   const body = {
     claimId,
