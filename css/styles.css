@@ -922,7 +922,7 @@ body.sheet-open { overflow: hidden; }
 }
 .kit-card .kit-tile.selected { border: 0; box-shadow: none; }
 .kit-tile:hover:not(:disabled):not(.locked) { border-color: transparent; }
-.kit-tile:disabled, .kit-tile.locked { cursor: not-allowed; }
+.kit-tile:disabled { cursor: not-allowed; }
 .kit-tile:disabled { opacity: 1; color: var(--text); }
 .kit-tile.skeleton {
   pointer-events: none;
@@ -933,6 +933,7 @@ body.sheet-open { overflow: hidden; }
 }
 .kit-name { font-size: 15px; font-weight: 600; margin: 0; }
 .kit-meta { font-size: 12px; color: var(--subtle); margin-top: auto; }
+.kit-progress { font-size: 12px; font-weight: 600; color: var(--text); }
 .lock-icon { width: 12px; height: 12px; display: inline-block; }
 
 .badge {
@@ -1042,6 +1043,8 @@ body.sheet-open { overflow: hidden; }
   background: var(--primary);
   border-color: var(--primary);
 }
+.task-check:disabled { cursor: default; opacity: 1; }
+.checklist-readonly .task-name { cursor: default; }
 .task-check:checked::after {
   content: "";
   width: 6px;

@@ -104,7 +104,8 @@ test('the admin month shows counts and dots, and future days stay closed', () =>
   assert.match(html, /class="inc"/);
   assert.match(html, /class="open"/);
   assert.match(html, /Claimed/);
-  assert.match(html, /Checked out/);
+  assert.match(html, /Kit ready to deploy/);
+  assert.equal(html.includes('Checked out'), false);
   assert.match(html, /Incomplete/);
   assert.match(html, /id="day-2026-09-24"[^>]*disabled/);
   assert.match(html, /id="day-2026-08-31"[^>]*disabled/);

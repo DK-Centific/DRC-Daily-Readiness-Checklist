@@ -27,7 +27,13 @@ import {
   renderWeekStrip,
   weekDates,
 } from './calendar-view.js';
-import { groupTasks, taskHint } from './task-groups.js';
+import {
+  checkoutReadyMessage,
+  pastCheckoutBadge,
+  renderAdminChecklistMirror,
+  renderTaskGroups,
+  tileProgressLabel,
+} from './checklist-view.js';
 import { historyEvents, rowMatchesFilters as historyRowMatches } from './history-events.js';
 import { applyTheme, saveThemeChoice, watchSystemTheme } from './theme.js';
 import { mergeRuntimeConfig, parseLegacyConfigJs, parseLocalConfig } from './config-load.js';
@@ -790,8 +796,8 @@ function pastKitPresentation(kit) {
       return { badgeClass: 'badge-yours', badge: `Claimed · ${who}`, meta: `Checked in ${formatPtTime(kit.claim.checkInAt)}` };
     }
     if (kit.lastCheckedOut?.checkOutAt) {
-      const who = kit.lastCheckedOut.userName || kit.lastCheckedOut.userEmail || 'Checked out';
-      return { badgeClass: 'badge-sage', badge: 'Checked out', meta: `${who} · out ${formatPtTime(kit.lastCheckedOut.checkOutAt)}` };
+      const who = kit.lastCheckedOut.userName || kit.lastCheckedOut.userEmail || 'Someone';
+      return { badgeClass: 'badge-sage', badge: pastCheckoutBadge(0, 0), meta: `${who} · out ${formatPtTime(kit.lastCheckedOut.checkOutAt)}` };
     }
     return { badgeClass: 'badge-available', badge: 'No claim', meta: 'Idle that day' };
   }
@@ -804,11 +810,10 @@ function pastKitPresentation(kit) {
   }
   const total = Number.isFinite(outcome.tasksTotal) ? outcome.tasksTotal : 0;
   const done = Number.isFinite(outcome.tasksCompleted) ? outcome.tasksCompleted : 0;
-  const fraction = total > 0 ? ` · ${done}/${total}` : '';
-  const who = outcome.userName || outcome.userEmail || 'Checked out';
+  const who = outcome.userName || outcome.userEmail || 'Someone';
   return {
     badgeClass: outcome.kind === 'incomplete' ? 'badge-amber' : 'badge-sage',
-    badge: `Checked out${fraction}`,
+    badge: pastCheckoutBadge(done, total),
     meta: `${who} · out ${formatPtTime(outcome.checkOutAt)}`,
   };
 }
@@ -851,11 +856,13 @@ function renderKitTiles() {
       let badge = '<span class="badge badge-available">Available</span>';
       if (mine) badge = '<span class="badge badge-yours">Yours</span>';
       else if (locked) badge = `<span class="badge badge-locked">${lockIcon()} Locked · ${esc(claim.userName || claim.userEmail)}</span>`;
+      const progress = tileProgressLabel({ roleIsAdmin: isAdmin(), claim, tasks: state.tasks });
       const disabled = locked && !isAdmin();
       tile = `
       <button type="button" class="kit-tile ${selected ? 'selected' : ''} ${locked ? 'locked' : ''}" data-action="select-kit" data-id="${kit.id}" ${disabled ? 'disabled' : ''} aria-pressed="${selected}">
         <p class="kit-name">${esc(kit.name)}</p>
         ${badge}
+        ${progress ? `<span class="kit-progress tabular">${esc(progress)}</span>` : ''}
         <span class="kit-meta">${esc(kitTileMeta(kit))}</span>
       </button>`;
     }
@@ -957,7 +964,8 @@ function renderTasks() {
   if (isPastDate()) {
     return `<section class="card preview-disabled"><div class="preview-msg"><strong>Past date — view only</strong>Checklist history is available from the History tab for past check-outs.</div></section>`;
   }
-  if (!claim) {
+  const mirror = !claim && kit?.claim && isAdmin() ? kit.claim : null;
+  if (!claim && !mirror) {
     const text = kit?.claim
       ? 'Tasks stay with the person who has this kit checked in.'
       : `Check in to start ${totalTasks} tasks`;
@@ -967,37 +975,20 @@ function renderTasks() {
   if (!state.tasks.length) {
     return `<section class="card">${banner('err', state.tasksError, state.tasksCode)}<p>${state.loading.tasks ? 'Refreshing…' : 'No tasks are set up yet.'}</p><button type="button" class="btn btn-ghost btn-sm" data-action="refresh-tasks">Refresh tasks</button></section>`;
   }
-  const done = new Set(claim.completedTaskIds || []);
-  const blocks = groupTasks(state.tasks).map((group) => {
-    const completed = group.tasks.filter((task) => done.has(task.id)).length;
-    const total = group.tasks.length;
-    const complete = completed === total;
-    const manual = state.groupManual[group.id];
-    const collapsed = manual === 'open' ? false : manual === 'closed' ? true : complete;
-    const rows = group.tasks.map((task) => {
-      const on = done.has(task.id);
-      const hint = taskHint(task.title);
-      return `
-        <li class="task-row ${on ? 'done' : ''}">
-          <input class="task-check" id="task-${task.id}" data-task-id="${task.id}" type="checkbox" ${on ? 'checked' : ''} aria-labelledby="task-label-${task.id}">
-          <div class="task-body">
-            <label class="task-name" id="task-label-${task.id}" for="task-${task.id}">${esc(task.title)}</label>
-            ${hint ? `<p class="task-hint">${esc(hint)}</p>` : ''}
-          </div>
-          ${taskStatusHtml(task.id)}
-        </li>`;
-    }).join('');
-    return `
-      <div class="task-group ${complete ? 'complete' : ''} ${collapsed ? 'collapsed' : ''}">
-        <button type="button" class="task-group-head" data-action="toggle-group" data-group="${group.id}" aria-expanded="${collapsed ? 'false' : 'true'}">
-          ${complete ? '<span class="group-check" aria-hidden="true">✓</span>' : ''}
-          <span class="section">${esc(group.label)}</span>
-          <span class="group-count tabular">${completed}/${total}</span>
-          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
-        </button>
-        <ul class="task-list">${rows}</ul>
-      </div>`;
-  }).join('');
+  const blocks = mirror
+    ? renderAdminChecklistMirror({
+      tasks: state.tasks,
+      completedTaskIds: mirror.completedTaskIds,
+      viewerName: mirror.userName || mirror.userEmail,
+      groupManual: state.groupManual,
+    })
+    : renderTaskGroups({
+      tasks: state.tasks,
+      completedTaskIds: claim.completedTaskIds,
+      readOnly: false,
+      groupManual: state.groupManual,
+      statusHtml: taskStatusHtml,
+    });
   return `
     ${banner('err', state.tasksError, state.tasksCode)}
     ${blocks}
@@ -1408,7 +1399,10 @@ async function refreshKits(date, { preferMine = false } = {}) {
         state.error = `${taken.name} was just claimed by ${taken.claim.userName}. Pick another kit.`;
       }
     }
-    const missing = kits.some((kit) => kit.claim?.userEmail === actor && openClaimNeedsTaskHydrate(kit.claim));
+    const missing = kits.some((kit) => {
+      if (!kit.claim || !openClaimNeedsTaskHydrate(kit.claim)) return false;
+      return kit.claim.userEmail === actor || isAdmin();
+    });
     if (missing) hydrateTaskIds(date, serial);
   } catch (error) {
     if (isAbort(error) || serial !== kitsSerial || state.date !== date) return;
@@ -1696,7 +1690,7 @@ async function confirmModal() {
   state.kitHold += 1;
   state.message = modal.type === 'release'
     ? `${modal.kitName} was released for this date.`
-    : `${modal.kitName} is checked out. The kit is free for this date.`;
+    : checkoutReadyMessage(modal.kitName);
   clearPageError();
   state.historyCache.clear();
   render();
