@@ -4,7 +4,7 @@
  */
 
 import { CHECKOUT_STATUS_LABEL, INCOMPLETE_CHECKOUT_LABEL } from './checklist-view.js';
-import { normalizeHistoryRows } from './flow-shape.js';
+import { coerceRecordId, normalizeHistoryRows } from './flow-shape.js';
 import { addDays, shiftMonth, splitYmd } from './time.js';
 
 function esc(value) {
@@ -78,11 +78,21 @@ function preferRow(current, next) {
   return nextAt >= currentAt ? next : current;
 }
 
+function rowKitId(row) {
+  return coerceRecordId(row?.kitId ?? row?.KitID ?? row?.KitId);
+}
+
+function rowKitName(row) {
+  return String(row?.kitName ?? row?.KitName ?? '').trim().toLowerCase();
+}
+
 /** One outcome per kit: open claim wins over an earlier check-out the same day. */
 export function outcomeForKit(rows, kitId) {
   let best = null;
+  const wanted = coerceRecordId(kitId);
   for (const row of rows || []) {
-    if (String(row?.kitId) !== String(kitId)) continue;
+    const id = rowKitId(row);
+    if (wanted === undefined || id === undefined || String(id) !== String(wanted)) continue;
     best = preferRow(best, row);
   }
   if (!best) return null;
@@ -99,6 +109,22 @@ export function outcomeForKit(rows, kitId) {
   if (!base.checkOutAt) return { ...base, kind: 'open' };
   const incomplete = Number.isFinite(done) && Number.isFinite(total) && total > 0 && done < total;
   return { ...base, kind: incomplete ? 'incomplete' : 'complete' };
+}
+
+/**
+ * Tile lookup. Prefer the kit id. If history stored the kit name in KitID
+ * (or the id shape does not match getKits), the kit name still counts.
+ * Day summary uses the same rows, so a counted checkout can lock this tile.
+ */
+export function outcomeForTile(rows, kit) {
+  if (!kit) return null;
+  const byId = outcomeForKit(rows, kit.id);
+  if (byId) return byId;
+  const name = String(kit.name || '').trim().toLowerCase();
+  if (!name) return null;
+  const named = (rows || []).filter((row) => rowKitName(row) === name);
+  if (!named.length) return null;
+  return outcomeForKit(named.map((row) => ({ ...row, kitId: kit.id })), kit.id);
 }
 
 /**

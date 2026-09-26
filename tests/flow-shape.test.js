@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { coerceCompletedTaskIds, isAdminRole, isTaskVisible, normalizeHistoryRows, normalizeKitClaims, openClaimNeedsTaskHydrate, roleLabel } from '../js/flow-shape.js';
+import { coerceCompletedTaskIds, coerceRecordId, isAdminRole, isTaskVisible, normalizeHistoryRows, normalizeKitClaims, openClaimNeedsTaskHydrate, roleLabel } from '../js/flow-shape.js';
 import { activityFromRows } from '../js/calendar-view.js';
 import { historyEvents } from '../js/history-events.js';
 
@@ -61,6 +61,18 @@ test('live history rows use claimDate and id', () => {
   assert.equal(pascal[0].claimDate, '2026-09-23');
   assert.equal(pascal[0].kitId, 2);
   assert.equal(pascal[0].kitName, 'Team 1');
+  const lookup = normalizeHistoryRows([{
+    claimId: 8,
+    date: '2026-09-26',
+    KitID: { LookupId: 1, LookupValue: 'Kit 01' },
+    KitName: 'Kit 01',
+    checkOutAt: '2026-09-26T18:00:00.000Z',
+    tasksCompleted: 18,
+    tasksTotal: 18,
+    status: 'CheckedOut',
+  }]);
+  assert.equal(lookup[0].kitId, 1);
+  assert.equal(coerceRecordId({ LookupId: '4' }), 4);
   assert.equal(normalizeHistoryRows(null), null);
   assert.deepEqual(normalizeHistoryRows([{ id: 4, claimDate: '2026-09-24' }]), [{ id: 4, claimDate: '2026-09-24' }]);
 });

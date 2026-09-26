@@ -35,6 +35,26 @@ function fillAlias(next, row, target, keys) {
   next[target] = typeof value === 'string' ? value.trim() : value;
 }
 
+/** SharePoint lookups arrive as { LookupId, LookupValue }. The page matches a number. */
+export function coerceRecordId(value) {
+  if (value == null || value === '') return undefined;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const text = value.trim();
+    if (!text) return undefined;
+    if (/^-?\d+$/.test(text)) {
+      const number = Number(text);
+      if (Number.isSafeInteger(number)) return number;
+    }
+    return text;
+  }
+  if (typeof value === 'object') {
+    const nested = value.LookupId ?? value.lookupId ?? value.Id ?? value.ID ?? value.id;
+    if (nested != null && nested !== value) return coerceRecordId(nested);
+  }
+  return undefined;
+}
+
 function taskId(value) {
   if (typeof value === 'string' && /^-?\d+$/.test(value.trim())) {
     const number = Number(value);
@@ -117,6 +137,8 @@ export function normalizeHistoryRow(row) {
   fillAlias(next, row, 'checkedOutByEmail', ['CheckedOutByEmail']);
   fillAlias(next, row, 'checkedOutByName', ['CheckedOutByName']);
   fillAlias(next, row, 'notes', ['Notes', 'checkoutNote', 'CheckoutNote']);
+  const kitId = coerceRecordId(next.kitId);
+  if (kitId !== undefined) next.kitId = kitId;
   return withCompletedTaskIds(next);
 }
 

@@ -84,21 +84,21 @@ export function kitStaysReady(input = {}) {
 
 export function todayKitBadge({ claim, viewerEmail, lastCheckedOut, outcome, historyLoaded = false } = {}) {
   if (claim && claim.userEmail === viewerEmail) {
-    return { badgeClass: 'badge-yours', label: 'Yours', claimable: false };
+    return { badgeClass: 'badge-yours', label: 'Yours', claimable: false, locked: false };
   }
   if (claim) {
-    return { badgeClass: 'badge-locked', label: inProgressStatus(claim.userName || claim.userEmail), claimable: false };
+    return { badgeClass: 'badge-locked', label: inProgressStatus(claim.userName || claim.userEmail), claimable: false, locked: true };
   }
   const finish = kitFinish({ claim: null, lastCheckedOut, outcome, historyLoaded });
   if (finish?.kind === 'incomplete') {
     const done = Number.isFinite(Number(finish.tasksCompleted)) ? Number(finish.tasksCompleted) : 0;
     const total = Number.isFinite(Number(finish.tasksTotal)) ? Number(finish.tasksTotal) : 0;
-    return { badgeClass: 'badge-amber', label: incompleteCheckoutBadge(done, total), claimable: false };
+    return { badgeClass: 'badge-amber', label: incompleteCheckoutBadge(done, total), claimable: false, locked: true };
   }
   if (finish) {
-    return { badgeClass: 'badge-sage', label: CHECKOUT_STATUS_LABEL, claimable: false };
+    return { badgeClass: 'badge-sage', label: CHECKOUT_STATUS_LABEL, claimable: false, locked: true };
   }
-  return { badgeClass: 'badge-available', label: 'Available', claimable: true };
+  return { badgeClass: 'badge-available', label: 'Available', claimable: true, locked: false };
 }
 
 /** Optional note on an incomplete checkout. Hidden when every task is done. */

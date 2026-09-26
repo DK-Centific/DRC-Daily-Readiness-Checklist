@@ -922,7 +922,10 @@ body.sheet-open { overflow: hidden; }
 }
 .kit-card .kit-tile.selected { border: 0; box-shadow: none; }
 .kit-tile:hover:not(:disabled):not(.locked) { border-color: transparent; }
+.kit-tile.locked,
 .kit-tile:disabled { cursor: not-allowed; }
+.kit-slot:has(.kit-tile.locked):hover .kit-card,
+.kit-slot:has(.kit-tile:disabled):hover .kit-card { border-color: var(--border); }
 .kit-tile:disabled { opacity: 1; color: var(--text); }
 .kit-tile.skeleton {
   pointer-events: none;

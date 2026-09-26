@@ -17,7 +17,7 @@ import {
   checklistReadyForMonthMarks,
   monthMarkTargets,
   monthRange,
-  outcomeForKit,
+  outcomeForTile,
   renderActivityCalendar,
   renderDateChip,
   renderDaySummary,
@@ -38,7 +38,7 @@ import {
   renderAdminChecklistMirror,
   renderTaskGroups,
   tileProgressLabel,
-} from './checklist-view.js?v=22';
+} from './checklist-view.js?v=23';
 import { historyEventVerb, historyEvents, rowMatchesFilters as historyRowMatches } from './history-events.js?v=21';
 import { applyTheme, saveThemeChoice, watchSystemTheme } from './theme.js';
 import { mergeRuntimeConfig, parseLegacyConfigJs, parseLocalConfig } from './config-load.js';
@@ -792,11 +792,12 @@ function monthKey(ymd) {
   return monthRange(parts.year, parts.month).key;
 }
 
-/** History for the selected day. Month rows win when that month has loaded. */
+/** History for the selected day. The same rows Day summary already counted. */
 function dayHistory() {
   if (!state.date) return { loaded: false, rows: [] };
   const key = monthKey(state.date);
-  if (state.loadedMonths.has(key)) {
+  const summaryLoaded = Object.prototype.hasOwnProperty.call(state.monthActivity, key) || state.loadedMonths.has(key);
+  if (summaryLoaded) {
     const rows = (state.monthRows[key] || []).filter((row) => (row.claimDate || row.ClaimDate) === state.date);
     return { loaded: true, rows };
   }
@@ -810,7 +811,7 @@ function dayHistory() {
 function finishForKit(kit) {
   if (!kit) return null;
   const history = dayHistory();
-  const outcome = history.loaded ? outcomeForKit(history.rows, kit.id) : null;
+  const outcome = history.loaded ? outcomeForTile(history.rows, kit) : null;
   return kitFinish({
     claim: kit.claim,
     lastCheckedOut: kit.lastCheckedOut,
@@ -851,8 +852,8 @@ function pastKitPresentation(kit) {
     }
     return { badgeClass: 'badge-available', badge: 'No claim', meta: 'Idle that day' };
   }
-  const rows = (state.monthRows[key] || []).filter((row) => row.claimDate === state.date);
-  const outcome = outcomeForKit(rows, kit.id);
+  const rows = (state.monthRows[key] || []).filter((row) => (row.claimDate || row.ClaimDate) === state.date);
+  const outcome = outcomeForTile(rows, kit);
   if (!outcome) return { badgeClass: 'badge-available', badge: 'No claim', meta: 'Idle that day' };
   if (outcome.kind === 'open') {
     const who = outcome.userName || outcome.userEmail;
@@ -911,16 +912,18 @@ function renderKitTiles() {
         claim,
         viewerEmail: state.user?.email,
         lastCheckedOut: kit.lastCheckedOut,
-        outcome: history.loaded ? outcomeForKit(history.rows, kit.id) : null,
+        outcome: history.loaded ? outcomeForTile(history.rows, kit) : null,
         historyLoaded: history.loaded,
       });
-      const badge = locked
-        ? `<span class="badge badge-locked">${lockIcon()} ${esc(view.label)}</span>`
+      const sealed = Boolean(view.locked) && !claim;
+      const showLock = locked || sealed;
+      const badge = showLock
+        ? `<span class="badge ${view.badgeClass}">${lockIcon()} ${esc(view.label)}</span>`
         : `<span class="badge ${view.badgeClass}">${esc(view.label)}</span>`;
       const progress = tileProgressLabel({ roleIsAdmin: isAdmin(), claim, tasks: state.tasks });
-      const disabled = ready || (locked && !isAdmin());
+      const disabled = sealed || (locked && !isAdmin());
       tile = `
-      <button type="button" class="kit-tile ${selected ? 'selected' : ''} ${locked ? 'locked' : ''}" data-action="select-kit" data-id="${kit.id}" ${disabled ? 'disabled' : ''} aria-pressed="${selected}">
+      <button type="button" class="kit-tile ${selected ? 'selected' : ''} ${showLock ? 'locked' : ''}" data-action="select-kit" data-id="${kit.id}" ${disabled ? 'disabled' : ''} aria-pressed="${selected}" ${sealed ? 'aria-disabled="true"' : ''}>
         <p class="kit-name">${esc(kit.name)}</p>
         ${badge}
         ${progress ? `<span class="kit-progress tabular">${esc(progress)}</span>` : ''}
