@@ -29,13 +29,14 @@ import {
 } from './calendar-view.js';
 import {
   checkoutReadyMessage,
-  inProgressStatus,
+  kitStaysReady,
   pastCheckoutBadge,
+  todayKitBadge,
   renderAdminChecklistMirror,
   renderTaskGroups,
   tileProgressLabel,
-} from './checklist-view.js';
-import { historyEvents, rowMatchesFilters as historyRowMatches } from './history-events.js';
+} from './checklist-view.js?v=21';
+import { historyEventVerb, historyEvents, rowMatchesFilters as historyRowMatches } from './history-events.js?v=20';
 import { applyTheme, saveThemeChoice, watchSystemTheme } from './theme.js';
 import { mergeRuntimeConfig, parseLegacyConfigJs, parseLocalConfig } from './config-load.js';
 import { acceptedLoginUser, planSessionRestore } from './session-restore.js';
@@ -782,7 +783,11 @@ function renderEmptyKits() {
 function kitTileMeta(kit) {
   if (kit.claim?.userEmail === state.user?.email) return 'Checked in by you';
   if (kit.claim) return `Checked in ${formatPtTime(kit.claim.checkInAt)}`;
-  if (kit.lastCheckedOut?.checkOutAt) return `Last out ${formatPtTime(kit.lastCheckedOut.checkOutAt)}`;
+  if (kit.lastCheckedOut?.checkOutAt) {
+    const who = kit.lastCheckedOut.userName || kit.lastCheckedOut.userEmail || 'Someone';
+    return `${who} · out ${formatPtTime(kit.lastCheckedOut.checkOutAt)}`;
+  }
+  if (kit.lastCheckedOut) return 'Ready to deploy';
   if (kit.notes) return kit.notes;
   return 'No check-in today';
 }
@@ -840,6 +845,7 @@ function renderKitReset(kit) {
 function renderKitTiles() {
   const past = isPastDate();
   const tiles = state.kits.map((kit) => {
+    const ready = !past && kitStaysReady({ claim: kit.claim, lastCheckedOut: kit.lastCheckedOut });
     let tile;
     if (past) {
       const view = pastKitPresentation(kit);
@@ -853,12 +859,17 @@ function renderKitTiles() {
       const claim = kit.claim;
       const mine = claim && claim.userEmail === state.user.email;
       const locked = Boolean(claim && !mine);
-      const selected = kit.id === state.selectedKitId;
-      let badge = '<span class="badge badge-available">Available</span>';
-      if (mine) badge = '<span class="badge badge-yours">Yours</span>';
-      else if (locked) badge = `<span class="badge badge-locked">${lockIcon()} ${esc(inProgressStatus(claim.userName || claim.userEmail))}</span>`;
+      const selected = !ready && kit.id === state.selectedKitId;
+      const view = todayKitBadge({
+        claim,
+        viewerEmail: state.user?.email,
+        lastCheckedOut: kit.lastCheckedOut,
+      });
+      const badge = locked
+        ? `<span class="badge badge-locked">${lockIcon()} ${esc(view.label)}</span>`
+        : `<span class="badge ${view.badgeClass}">${esc(view.label)}</span>`;
       const progress = tileProgressLabel({ roleIsAdmin: isAdmin(), claim, tasks: state.tasks });
-      const disabled = locked && !isAdmin();
+      const disabled = ready || (locked && !isAdmin());
       tile = `
       <button type="button" class="kit-tile ${selected ? 'selected' : ''} ${locked ? 'locked' : ''}" data-action="select-kit" data-id="${kit.id}" ${disabled ? 'disabled' : ''} aria-pressed="${selected}">
         <p class="kit-name">${esc(kit.name)}</p>
@@ -867,7 +878,7 @@ function renderKitTiles() {
         <span class="kit-meta">${esc(kitTileMeta(kit))}</span>
       </button>`;
     }
-    const selected = !past && kit.id === state.selectedKitId;
+    const selected = !past && !ready && kit.id === state.selectedKitId;
     const actions = renderKitActions(kit);
     return `<div class="kit-slot${selected ? ' selected' : ''}"><div class="kit-card">${tile}${actions}</div>${renderKitReset(kit)}</div>`;
   }).join('');
@@ -894,6 +905,14 @@ function checkButtonState() {
       release: isAdmin(),
     };
   }
+  if (kitStaysReady({ claim: kit.claim, lastCheckedOut: kit.lastCheckedOut })) {
+    return {
+      label: 'Check in',
+      action: 'check-in',
+      disabled: true,
+      reason: `${kit.name} is ready to deploy. An admin reset unlocks it for this date.`,
+    };
+  }
   const mine = state.kits.find((row) => row.claim && row.claim.userEmail === state.user.email);
   if (mine && mine.id !== kit.id) {
     return {
@@ -908,6 +927,7 @@ function checkButtonState() {
 
 function renderKitActions(kit) {
   if (isPastDate() || !kit) return '';
+  if (kitStaysReady({ claim: kit.claim, lastCheckedOut: kit.lastCheckedOut })) return '';
   const selected = kit.id === state.selectedKitId;
   const mine = Boolean(kit.claim && kit.claim.userEmail === state.user?.email);
   const locked = Boolean(kit.claim && !mine);
@@ -967,6 +987,9 @@ function renderTasks() {
   }
   const mirror = !claim && kit?.claim && isAdmin() ? kit.claim : null;
   if (!claim && !mirror) {
+    if (kit && kitStaysReady({ claim: kit.claim, lastCheckedOut: kit.lastCheckedOut })) {
+      return '<section class="card preview-disabled"><div class="preview-msg"><strong>Kit ready to deploy</strong>This kit stays locked until an admin resets it for this date.</div></section>';
+    }
     const text = kit?.claim
       ? 'Tasks stay with the person who has this kit checked in.'
       : `Check in to start ${totalTasks} tasks`;
@@ -1061,7 +1084,7 @@ function historyCardsHtml() {
     const day = event.at ? pacificDate(new Date(event.at)) : (event.claimDate || '');
     const heading = day && day !== lastDay ? `<p class="date-group-label">${esc(formatHistoryDay(day))}</p>` : '';
     lastDay = day || lastDay;
-    const verb = event.kind === 'claimed' ? 'claimed' : 'unclaimed';
+    const verb = event.label || historyEventVerb(event.kind);
     const total = Number(event.tasksTotal) || 0;
     const doneCount = Number(event.tasksCompleted) || 0;
     const pill = total
@@ -1492,7 +1515,7 @@ function setDate(ymd, { focusDay = false } = {}) {
 
 async function checkIn() {
   const kit = selectedKit();
-  if (!kit || kit.claim || state.pendingCheckIn || isPastDate()) return;
+  if (!kit || kit.claim || kitStaysReady(kit) || state.pendingCheckIn || isPastDate()) return;
   const date = state.date;
   const snapshot = cloneData(state.kits);
   const checkInAt = new Date().toISOString();
@@ -2361,6 +2384,7 @@ function onClick(event) {
     const id = Number(button.dataset.id);
     const kit = state.kits.find((row) => row.id === id);
     if (!kit) return;
+    if (kitStaysReady(kit)) return;
     if (kit.claim && kit.claim.userEmail !== state.user.email && !isAdmin()) return;
     state.selectedKitId = id;
     state.message = '';

@@ -83,7 +83,7 @@ Errors: `KIT_CLAIMED` (someone already holds that kit that day), `ALREADY_HAVE_C
 }
 ```
 
-`checkedOutByEmail` and `checkedOutByName` are blank until check-out. After check-out they are the person who released the kit. Older rows may omit them; the page then shows the claimant as the person who unclaimed. `CheckedOutByEmail` / `CheckedOutByName` are accepted too.
+`checkedOutByEmail` and `checkedOutByName` are blank until check-out. After check-out they are the person who released the kit. Older rows may omit them; the page then shows the claimant as the person who completed the kit. `CheckedOutByEmail` / `CheckedOutByName` are accepted too.
 
 The live log may send `date` instead of `claimDate`, and `claimId` instead of `id` (`Date` and `ClaimId` are accepted too). On every `getHistory` result the page copies those onto `claimDate` and `id` when the page fields are missing, before History filters or calendar marks read the rows. History and the calendar marks read `claimDate` and `id`.
 

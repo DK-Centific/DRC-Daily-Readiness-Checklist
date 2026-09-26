@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { historyEvents, rowMatchesFilters, unclaimActor } from '../js/history-events.js';
+import { historyEventVerb, historyEvents, rowMatchesFilters, unclaimActor } from '../js/history-events.js';
 import { normalizeHistoryRows } from '../js/flow-shape.js';
 import { activityFromRows } from '../js/calendar-view.js';
 
@@ -63,6 +63,28 @@ test('a live history row for today stays in History after normalize', () => {
   assert.equal(events[0].claimDate, today);
   assert.equal(events[0].kitName, 'Team 1');
   assert.equal(activityFromRows([live])[today].open, 1);
+});
+
+test('a checked-out history line says completed', () => {
+  assert.equal(historyEventVerb('claimed'), 'claimed');
+  assert.equal(historyEventVerb('unclaimed'), 'completed');
+  const events = historyEvents([
+    {
+      id: 1,
+      kitName: 'Kit 01',
+      claimDate: '2026-09-24',
+      userName: 'Jane Doe',
+      userEmail: 'jane.doe@centific.com',
+      checkInAt: '2026-09-24T15:00:00.000Z',
+      checkOutAt: '2026-09-24T20:00:00.000Z',
+      status: 'CheckedOut',
+    },
+  ]);
+  const finished = events.find((event) => event.kind === 'unclaimed');
+  assert.equal(finished.label, 'completed');
+  assert.equal(finished.label.includes('unclaimed'), false);
+  const opened = events.find((event) => event.kind === 'claimed');
+  assert.equal(opened.label, 'claimed');
 });
 
 test('history events list the newest action first and include both people', () => {
