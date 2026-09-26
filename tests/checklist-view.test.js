@@ -8,6 +8,7 @@ import {
   inProgressStatus,
   incompleteCheckoutBadge,
   kitFinish,
+  kitStatusCopy,
   kitStaysReady,
   pastCheckoutBadge,
   renderAdminChecklistMirror,
@@ -299,6 +300,37 @@ test('loaded history with no checkout clears a stale lastCheckedOut', () => {
     outcome: null,
     historyLoaded: true,
   }).label, 'Available');
+});
+
+test('the kit message matches the tile and does not call a finished kit idle', () => {
+  const ready = kitStatusCopy({ finish: { kind: 'complete' } });
+  assert.equal(ready.meta.includes('No check-in today'), false);
+  assert.equal(ready.previewTitle, 'Kit ready to deploy');
+  assert.equal(ready.meta, 'Kit ready to deploy. Locked until an admin resets it.');
+  assert.equal(ready.previewBody, 'This kit stays locked until an admin resets it for this date.');
+
+  const incomplete = kitStatusCopy({ finish: { kind: 'incomplete' } });
+  assert.equal(incomplete.previewTitle, 'Incomplete checkout');
+  assert.equal(incomplete.meta.includes('No check-in today'), false);
+  assert.match(incomplete.meta, /Incomplete checkout/);
+
+  const progress = kitStatusCopy({
+    claim: { userName: 'Jane Doe', userEmail: 'jane.doe@centific.com' },
+    viewerEmail: 'brian.leong@centific.com',
+  });
+  assert.equal(progress.meta, 'In progress · Jane Doe');
+  assert.equal(progress.previewTitle, 'In progress · Jane Doe');
+  assert.equal(progress.meta.includes('No check-in today'), false);
+
+  const mine = kitStatusCopy({
+    claim: { userEmail: 'jane.doe@centific.com' },
+    viewerEmail: 'jane.doe@centific.com',
+  });
+  assert.equal(mine.meta, 'Checked in by you');
+
+  const idle = kitStatusCopy({});
+  assert.equal(idle.meta, 'No check-in today');
+  assert.match(idle.previewTitle, /Check in to start/);
 });
 
 test('incomplete checkout dialog has an optional note and complete checkout does not', () => {

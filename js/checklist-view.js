@@ -127,6 +127,48 @@ export function checkoutReadyMessage(kitName) {
   return `${kitName} is ready to deploy.`;
 }
 
+/**
+ * Copy under the tile and in the empty checklist area.
+ * A finished kit must not say it had no check-in today.
+ */
+export function kitStatusCopy({ claim, viewerEmail, finish, tasksTotal = 18 } = {}) {
+  if (claim && claim.userEmail === viewerEmail) {
+    return {
+      meta: 'Checked in by you',
+      previewTitle: 'Yours',
+      previewBody: '',
+    };
+  }
+  if (claim) {
+    const label = inProgressStatus(claim.userName || claim.userEmail);
+    return {
+      meta: label,
+      previewTitle: label,
+      previewBody: 'Tasks stay with the person who has this kit checked in.',
+    };
+  }
+  if (finish?.kind === 'incomplete') {
+    return {
+      meta: 'Incomplete checkout. Locked until an admin resets it.',
+      previewTitle: INCOMPLETE_CHECKOUT_LABEL,
+      previewBody: 'This kit stays locked until an admin resets it for this date.',
+    };
+  }
+  if (finish) {
+    return {
+      meta: 'Kit ready to deploy. Locked until an admin resets it.',
+      previewTitle: CHECKOUT_STATUS_LABEL,
+      previewBody: 'This kit stays locked until an admin resets it for this date.',
+    };
+  }
+  const total = Number(tasksTotal) || 18;
+  return {
+    meta: 'No check-in today',
+    previewTitle: `Check in to start ${total} tasks`,
+    previewBody: 'Camera, power & batteries, cables & mounts, network, kit contents',
+  };
+}
+
 /** Claim-status label. Keeps the person's name when the tile already shows one. */
 export function inProgressStatus(name) {
   const who = String(name ?? '').trim();

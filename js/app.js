@@ -32,13 +32,14 @@ import {
   checkoutReadyMessage,
   incompleteCheckoutBadge,
   kitFinish,
+  kitStatusCopy,
   pastCheckoutBadge,
   renderCheckoutNoteField,
   todayKitBadge,
   renderAdminChecklistMirror,
   renderTaskGroups,
   tileProgressLabel,
-} from './checklist-view.js?v=23';
+} from './checklist-view.js?v=24';
 import { historyEventVerb, historyEvents, rowMatchesFilters as historyRowMatches } from './history-events.js?v=21';
 import { applyTheme, saveThemeChoice, watchSystemTheme } from './theme.js';
 import { mergeRuntimeConfig, parseLegacyConfigJs, parseLocalConfig } from './config-load.js';
@@ -825,16 +826,14 @@ function kitIsFinished(kit) {
 }
 
 function kitTileMeta(kit) {
-  if (kit.claim?.userEmail === state.user?.email) return 'Checked in by you';
-  if (kit.claim) return `Checked in ${formatPtTime(kit.claim.checkInAt)}`;
   const finish = isPastDate() ? null : finishForKit(kit);
-  if (finish?.checkOutAt) {
-    const who = finish.userName || finish.userEmail || 'Someone';
-    return `${who} · out ${formatPtTime(finish.checkOutAt)}`;
-  }
-  if (finish) return finish.kind === 'incomplete' ? 'Incomplete checkout' : 'Ready to deploy';
-  if (kit.notes) return kit.notes;
-  return 'No check-in today';
+  if (!finish && !kit.claim && kit.notes) return kit.notes;
+  return kitStatusCopy({
+    claim: kit.claim,
+    viewerEmail: state.user?.email,
+    finish,
+    tasksTotal: state.tasks.length || 18,
+  }).meta;
 }
 
 function pastKitPresentation(kit) {
@@ -1042,17 +1041,13 @@ function renderTasks() {
   const mirror = !claim && kit?.claim && isAdmin() ? kit.claim : null;
   if (!claim && !mirror) {
     const finish = kit ? finishForKit(kit) : null;
-    if (finish?.kind === 'incomplete') {
-      return '<section class="card preview-disabled"><div class="preview-msg"><strong>Incomplete checkout</strong>This kit stays locked until an admin resets it for this date.</div></section>';
-    }
-    if (finish) {
-      return '<section class="card preview-disabled"><div class="preview-msg"><strong>Kit ready to deploy</strong>This kit stays locked until an admin resets it for this date.</div></section>';
-    }
-    const text = kit?.claim
-      ? 'Tasks stay with the person who has this kit checked in.'
-      : `Check in to start ${totalTasks} tasks`;
-    const sub = kit?.claim ? '' : 'Camera, power & batteries, cables & mounts, network, kit contents';
-    return `<section class="card preview-disabled"><div class="preview-msg"><strong>${esc(text)}</strong>${esc(sub)}</div></section>`;
+    const copy = kitStatusCopy({
+      claim: kit?.claim,
+      viewerEmail: state.user?.email,
+      finish,
+      tasksTotal: totalTasks,
+    });
+    return `<section class="card preview-disabled"><div class="preview-msg"><strong>${esc(copy.previewTitle)}</strong>${esc(copy.previewBody)}</div></section>`;
   }
   if (!state.tasks.length) {
     return `<section class="card">${banner('err', state.tasksError, state.tasksCode)}<p>${state.loading.tasks ? 'Refreshing…' : 'No tasks are set up yet.'}</p><button type="button" class="btn btn-ghost btn-sm" data-action="refresh-tasks">Refresh tasks</button></section>`;
