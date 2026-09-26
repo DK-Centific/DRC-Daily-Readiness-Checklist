@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   CHECKOUT_STATUS_LABEL,
   checkoutReadyMessage,
+  inProgressStatus,
   pastCheckoutBadge,
   renderAdminChecklistMirror,
   renderTaskGroups,
@@ -68,6 +69,13 @@ test('the claimer checklist keeps checks enabled', () => {
   });
   assert.match(html, /id="task-1"[^>]*checked/);
   assert.equal(html.includes('disabled'), false);
+});
+
+test('a claimed kit says In progress and keeps the person name', () => {
+  assert.equal(inProgressStatus('Jane Doe'), 'In progress · Jane Doe');
+  assert.equal(inProgressStatus('jane.doe@centific.com'), 'In progress · jane.doe@centific.com');
+  assert.equal(inProgressStatus(''), 'In progress');
+  assert.equal(inProgressStatus('Jane Doe').includes('Locked'), false);
 });
 
 test('finished kit status says Kit ready to deploy', () => {

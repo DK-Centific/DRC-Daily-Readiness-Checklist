@@ -8,6 +8,9 @@ import { groupTasks, taskHint } from './task-groups.js';
 /** Status shown after a kit is checked out. The Check out button stays the verb. */
 export const CHECKOUT_STATUS_LABEL = 'Kit ready to deploy';
 
+/** Status on a kit someone else has claimed today. */
+export const IN_PROGRESS_STATUS = 'In progress';
+
 /** Same fallback renderTasks uses when the live task list is not loaded yet. */
 export const TASK_TOTAL_FALLBACK = 18;
 
@@ -33,6 +36,13 @@ export function pastCheckoutBadge(done, total) {
 
 export function checkoutReadyMessage(kitName) {
   return `${kitName} is ready to deploy. The kit is free for this date.`;
+}
+
+/** Claim-status label. Keeps the person's name when the tile already shows one. */
+export function inProgressStatus(name) {
+  const who = String(name ?? '').trim();
+  if (!who) return IN_PROGRESS_STATUS;
+  return `${IN_PROGRESS_STATUS} · ${who}`;
 }
 
 /**

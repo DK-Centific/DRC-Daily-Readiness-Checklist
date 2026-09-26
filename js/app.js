@@ -29,6 +29,7 @@ import {
 } from './calendar-view.js';
 import {
   checkoutReadyMessage,
+  inProgressStatus,
   pastCheckoutBadge,
   renderAdminChecklistMirror,
   renderTaskGroups,
@@ -855,7 +856,7 @@ function renderKitTiles() {
       const selected = kit.id === state.selectedKitId;
       let badge = '<span class="badge badge-available">Available</span>';
       if (mine) badge = '<span class="badge badge-yours">Yours</span>';
-      else if (locked) badge = `<span class="badge badge-locked">${lockIcon()} Locked · ${esc(claim.userName || claim.userEmail)}</span>`;
+      else if (locked) badge = `<span class="badge badge-locked">${lockIcon()} ${esc(inProgressStatus(claim.userName || claim.userEmail))}</span>`;
       const progress = tileProgressLabel({ roleIsAdmin: isAdmin(), claim, tasks: state.tasks });
       const disabled = locked && !isAdmin();
       tile = `
