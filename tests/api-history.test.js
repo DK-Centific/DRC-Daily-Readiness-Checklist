@@ -31,9 +31,41 @@ test('every getHistory result maps live date and claimId', async () => {
     assert.equal(history.data[0].id, 7);
     assert.equal(history.data[0].claimDate, '2026-09-24');
     assert.equal(history.data[0].claimId, 7);
+    assert.equal(history.data[0].notes, '');
     const kits = await api.call({ action: 'getKits', actor: 'brian.leong@centific.com', date: '2026-09-24' });
     assert.equal(kits.data[0].claimDate, undefined);
     assert.equal(kits.data[0].id, 1);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test('checkOut success and history rows always include a notes string', async () => {
+  const original = globalThis.fetch;
+  let sentCheckOut = null;
+  globalThis.fetch = async (_url, options) => {
+    const body = JSON.parse(options.body);
+    const data = body.action === 'checkOut'
+      ? { claimId: body.claimId, checkOutAt: '2026-09-26T18:00:00.000Z', notes: null, CheckoutNotes: 'Mount was loose' }
+      : [{ claimId: 9, date: '2026-09-26', checkOutAt: '2026-09-26T18:00:00.000Z', status: 'CheckedOut', CheckoutNotes: 'Mount was loose' }];
+    if (body.action === 'checkOut') sentCheckOut = body;
+    return { ok: true, json: async () => ({ ok: true, data }) };
+  };
+  try {
+    const api = createClient({ backend: 'pa', flowUrl: 'https://example.test/flow' });
+    const checkedOut = await api.call({
+      action: 'checkOut',
+      actor: 'jane.doe@centific.com',
+      claimId: 9,
+      completedTaskIds: [1],
+      tasksTotal: 18,
+      notes: 'Mount was loose',
+    });
+    assert.equal(sentCheckOut.notes, 'Mount was loose');
+    assert.equal('incompleteReason' in sentCheckOut, false);
+    assert.equal(checkedOut.data.notes, 'Mount was loose');
+    const history = await api.call({ action: 'getHistory', actor: 'jane.doe@centific.com' });
+    assert.equal(history.data[0].notes, 'Mount was loose');
   } finally {
     globalThis.fetch = original;
   }

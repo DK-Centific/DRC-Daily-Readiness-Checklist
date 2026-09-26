@@ -191,6 +191,70 @@ test('check-out frees the kit so someone else can claim it the same day', async 
   assert.equal(kit.lastCheckedOut.userEmail, JANE);
 });
 
+test('an optional checkout note is stored and returned on history', async () => {
+  const api = backend();
+  const claim = await api.call({ action: 'checkIn', actor: JANE, kitId: 1, date: DATE });
+  const checkedOut = await api.call({
+    action: 'checkOut',
+    actor: JANE,
+    claimId: claim.data.claimId,
+    completedTaskIds: [1],
+    tasksTotal: 18,
+    notes: '  Lens was cracked  ',
+  });
+  assert.equal(checkedOut.ok, true);
+  assert.equal(checkedOut.data.notes, 'Lens was cracked');
+  const history = await api.call({ action: 'getHistory', actor: JANE, from: DATE, to: DATE });
+  const row = history.data.find((item) => item.id === claim.data.claimId);
+  assert.equal(row.notes, 'Lens was cracked');
+  const blank = await api.call({ action: 'checkIn', actor: JANE, kitId: 2, date: DATE });
+  await api.call({
+    action: 'checkOut',
+    actor: JANE,
+    claimId: blank.data.claimId,
+    completedTaskIds: [1],
+    tasksTotal: 18,
+  });
+  const again = await api.call({ action: 'getHistory', actor: JANE, from: DATE, to: DATE });
+  const plain = again.data.find((item) => item.id === blank.data.claimId);
+  assert.equal(plain.notes, '');
+  const noNote = await api.call({
+    action: 'checkOut',
+    actor: BRIAN,
+    claimId: (await api.call({ action: 'checkIn', actor: BRIAN, kitId: 3, date: DATE })).data.claimId,
+    completedTaskIds: [],
+    tasksTotal: 18,
+  });
+  assert.equal(noNote.data.notes, '');
+});
+
+test('checkout notes wins over incompleteReason', async () => {
+  const api = backend();
+  const claim = await api.call({ action: 'checkIn', actor: JANE, kitId: 1, date: DATE });
+  const checkedOut = await api.call({
+    action: 'checkOut',
+    actor: JANE,
+    claimId: claim.data.claimId,
+    completedTaskIds: [1],
+    tasksTotal: 18,
+    notes: 'From notes',
+    incompleteReason: 'From alias',
+  });
+  assert.equal(checkedOut.data.notes, 'From notes');
+  const aliasOnly = await api.call({ action: 'checkIn', actor: JANE, kitId: 2, date: DATE });
+  const aliased = await api.call({
+    action: 'checkOut',
+    actor: JANE,
+    claimId: aliasOnly.data.claimId,
+    completedTaskIds: [],
+    tasksTotal: 18,
+    incompleteReason: '  Alias only  ',
+  });
+  assert.equal(aliased.data.notes, 'Alias only');
+  const history = await api.call({ action: 'getHistory', actor: JANE, from: DATE, to: DATE });
+  assert.equal(history.data.find((item) => item.id === aliasOnly.data.claimId).notes, 'Alias only');
+});
+
 test('task checkbox changes persist on the open claim and only the owner can change them', async () => {
   const api = backend();
   const claim = await api.call({ action: 'checkIn', actor: JANE, kitId: 1, date: DATE });

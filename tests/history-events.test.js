@@ -125,3 +125,23 @@ test('history events list the newest action first and include both people', () =
   assert.equal(events[0].tasksTotal, 4);
   assert.equal(events[2].name, 'Jane Doe');
 });
+
+test('a checkout note shows on the completed history line only', () => {
+  const events = historyEvents([
+    {
+      id: 4,
+      kitName: 'Kit 01',
+      claimDate: '2026-09-26',
+      userName: 'Jane Doe',
+      userEmail: 'jane.doe@centific.com',
+      checkInAt: '2026-09-26T15:00:00.000Z',
+      checkOutAt: '2026-09-26T18:00:00.000Z',
+      status: 'CheckedOut',
+      Notes: '  Camera mount was loose  ',
+    },
+  ]);
+  const finished = events.find((event) => event.kind === 'unclaimed');
+  const opened = events.find((event) => event.kind === 'claimed');
+  assert.equal(finished.notes, 'Camera mount was loose');
+  assert.equal(opened.notes, '');
+});

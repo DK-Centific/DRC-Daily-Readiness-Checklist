@@ -28,11 +28,57 @@ function firstFilled(row, keys) {
   return undefined;
 }
 
+/**
+ * Checkout note text. `notes` wins. The saved column is CheckoutNotes.
+ * A missing note is "".
+ */
+export function checkoutNotesText(record) {
+  if (!record || typeof record !== 'object' || Array.isArray(record)) return '';
+  if (Object.prototype.hasOwnProperty.call(record, 'notes') && record.notes != null) {
+    return String(record.notes).trim();
+  }
+  const keys = ['CheckoutNotes', 'Notes', 'checkoutNote', 'CheckoutNote', 'incompleteReason'];
+  for (const key of keys) {
+    if (record[key] == null) continue;
+    const text = String(record[key]).trim();
+    if (text) return text;
+  }
+  return '';
+}
+
+/** checkOut success always includes notes, even when the kit had no note. */
+export function normalizeCheckoutData(data) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return data;
+  const notes = checkoutNotesText(data);
+  if (data.notes === notes) return data;
+  return { ...data, notes };
+}
+
 function fillAlias(next, row, target, keys) {
   if (hasValue(next[target])) return;
   const value = firstFilled(row, keys);
   if (value === undefined) return;
   next[target] = typeof value === 'string' ? value.trim() : value;
+}
+
+/** SharePoint lookups arrive as { LookupId, LookupValue }. The page matches a number. */
+export function coerceRecordId(value) {
+  if (value == null || value === '') return undefined;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const text = value.trim();
+    if (!text) return undefined;
+    if (/^-?\d+$/.test(text)) {
+      const number = Number(text);
+      if (Number.isSafeInteger(number)) return number;
+    }
+    return text;
+  }
+  if (typeof value === 'object') {
+    const nested = value.LookupId ?? value.lookupId ?? value.Id ?? value.ID ?? value.id;
+    if (nested != null && nested !== value) return coerceRecordId(nested);
+  }
+  return undefined;
 }
 
 function taskId(value) {
@@ -116,6 +162,9 @@ export function normalizeHistoryRow(row) {
   fillAlias(next, row, 'completedTaskIds', ['CompletedTaskIDs', 'CompletedTaskIds']);
   fillAlias(next, row, 'checkedOutByEmail', ['CheckedOutByEmail']);
   fillAlias(next, row, 'checkedOutByName', ['CheckedOutByName']);
+  next.notes = checkoutNotesText(row);
+  const kitId = coerceRecordId(next.kitId);
+  if (kitId !== undefined) next.kitId = kitId;
   return withCompletedTaskIds(next);
 }
 

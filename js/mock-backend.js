@@ -145,6 +145,7 @@ function publicLog(row) {
     completedTaskIds: [...row.completedTaskIds],
     checkedOutByEmail: row.checkedOutByEmail || '',
     checkedOutByName: row.checkedOutByName || '',
+    notes: row.notes || '',
   };
 }
 
@@ -287,6 +288,7 @@ function checkIn(db, write, actor, params) {
     completedTaskIds: [],
     checkedOutByEmail: '',
     checkedOutByName: '',
+    notes: '',
   };
   db.logs.push(log);
   write(db);
@@ -332,6 +334,7 @@ function checkOut(db, write, actor, params) {
   claim.checkOutAt = new Date().toISOString();
   claim.checkedOutByEmail = auth.user.email;
   claim.checkedOutByName = auth.user.name;
+  claim.notes = checkoutNoteFromParams(params);
   write(db);
   return ok({
     claimId: claim.id,
@@ -340,7 +343,15 @@ function checkOut(db, write, actor, params) {
     tasksTotal: claim.tasksTotal,
     checkedOutByEmail: claim.checkedOutByEmail,
     checkedOutByName: claim.checkedOutByName,
+    notes: claim.notes,
   });
+}
+
+/** notes wins when both notes and incompleteReason are sent. A missing note is "". */
+function checkoutNoteFromParams(params = {}) {
+  if (Object.prototype.hasOwnProperty.call(params, 'notes')) return String(params.notes ?? '').trim();
+  if (params.incompleteReason != null) return String(params.incompleteReason).trim();
+  return '';
 }
 
 function getHistory(db, actor, params) {
