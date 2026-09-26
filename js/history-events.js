@@ -1,4 +1,4 @@
-/** Turn claim rows into a newest-first claimed / unclaimed log. */
+/** Turn claim rows into a newest-first claimed / completed log. Checkout kind stays "unclaimed". */
 
 import { normalizeHistoryRows } from './flow-shape.js';
 
@@ -30,6 +30,11 @@ function pick(row, camel, pascal) {
   return '';
 }
 
+/** User-visible History verb. Internal kind stays unclaimed for a checkout. */
+export function historyEventVerb(kind) {
+  return kind === 'claimed' ? 'claimed' : 'completed';
+}
+
 export function unclaimActor(row) {
   return {
     name: pick(row, 'checkedOutByName', 'CheckedOutByName') || text(row?.userName),
@@ -43,6 +48,7 @@ export function historyEvents(rows) {
     events.push({
       id: `${row.id}-claimed`,
       kind: 'claimed',
+      label: historyEventVerb('claimed'),
       at: row.checkInAt,
       kitName: row.kitName,
       claimDate: row.claimDate,
@@ -56,6 +62,7 @@ export function historyEvents(rows) {
       events.push({
         id: `${row.id}-unclaimed`,
         kind: 'unclaimed',
+        label: historyEventVerb('unclaimed'),
         at: row.checkOutAt,
         kitName: row.kitName,
         claimDate: row.claimDate,

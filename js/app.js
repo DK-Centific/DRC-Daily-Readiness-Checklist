@@ -35,7 +35,7 @@ import {
   renderTaskGroups,
   tileProgressLabel,
 } from './checklist-view.js?v=19';
-import { historyEvents, rowMatchesFilters as historyRowMatches } from './history-events.js';
+import { historyEventVerb, historyEvents, rowMatchesFilters as historyRowMatches } from './history-events.js?v=20';
 import { applyTheme, saveThemeChoice, watchSystemTheme } from './theme.js';
 import { mergeRuntimeConfig, parseLegacyConfigJs, parseLocalConfig } from './config-load.js';
 import { acceptedLoginUser, planSessionRestore } from './session-restore.js';
@@ -1066,7 +1066,7 @@ function historyCardsHtml() {
     const day = event.at ? pacificDate(new Date(event.at)) : (event.claimDate || '');
     const heading = day && day !== lastDay ? `<p class="date-group-label">${esc(formatHistoryDay(day))}</p>` : '';
     lastDay = day || lastDay;
-    const verb = event.kind === 'claimed' ? 'claimed' : 'unclaimed';
+    const verb = event.label || historyEventVerb(event.kind);
     const total = Number(event.tasksTotal) || 0;
     const doneCount = Number(event.tasksCompleted) || 0;
     const pill = total
